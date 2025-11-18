@@ -42,23 +42,33 @@ def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
 
 def get_repetition_counter_planes(board: chess.Board) -> np.ndarray:
     """
-    Return 2x8x8 tensor of repetition counter planes.
+    Return 2x8x8 tensor of repetition counter.
     If 0 repetitions, return all zeros.
     If 1 repetition, return plane_1 = ones, plane_2 = zeros.
     If 2 or more repetitions, return plane_1 = zeros, plane_2 = ones.
     """
-    if board.is_repetition(0):
-        return np.zeros((2, 8, 8), dtype=np.float32)
-    elif board.is_repetition(1):
-        plane_1 = np.ones((8, 8), dtype=np.float32)
-        plane_2 = np.zeros((8, 8), dtype=np.float32)
-        return np.stack([plane_1, plane_2])
-    plane_1 = np.zeros((8, 8), dtype=np.float32)
-    plane_2 = np.ones((8, 8), dtype=np.float32)
-    return np.stack([plane_1, plane_2])
+    repetition_counter_planes = np.zeros((2, 8, 8), dtype=np.float32)
+
+    # Board has been seen before two or more times
+    if board.is_repetition(3):
+        repetition_counter_planes[1, :, :] = 1.0
+    # Board has been seen before once
+    elif board.is_repetition(2):
+        repetition_counter_planes[0, :, :] = 1.0
+
+    return repetition_counter_planes
 
 
 def get_global_planes(board: chess.Board) -> np.ndarray:
     global_planes = np.zeros((7, 8, 8), dtype=np.float32)
     # TODO
     return global_planes
+
+
+if __name__ == "__main__":
+    example_board = chess.Board()
+    example_board.push_san("Nf3")
+    example_board.push_san("Nc6")
+    print(get_piece_placement_planes(example_board))
+    print(get_repetition_counter_planes(example_board))
+#    print(get_global_planes(board))
