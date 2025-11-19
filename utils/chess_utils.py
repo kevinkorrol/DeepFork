@@ -11,7 +11,7 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> dict:
     :return: A dict with state tensors as keys and next moves as Move objects as values
     """
     current_board = game.board()
-    board_history = np.array((history_count, 14, 8, 8))
+    board_history = np.array((history_count, 14, 8, 8), dtype=np.float32)
     seen_states = {get_state_hash(current_board): 1}
     tensors = {}
 
@@ -44,10 +44,14 @@ def state_to_tensor(
     # Move all previous states by one
     for i in range(history_count - 1, 0, -1):
         state_history[i] = state_history[i - 1]
-    state_history[0] = get_piece_placement_planes(new_board)
 
-    repetition_planes = get_repetition_counter_planes(new_board, seen_states)
-    return np.concatenate(np.stack(state_history), repetition_planes)
+    state_history[0] = np.concatenate([
+        get_repetition_counter_planes(new_board, seen_states),
+        get_piece_placement_planes(new_board)
+    ])
+    global_planes = get_global_planes(new_board)
+
+    return np.concatenate(np.stack(state_history), global_planes)
 
 
 def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
