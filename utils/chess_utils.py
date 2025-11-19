@@ -1,28 +1,53 @@
 import chess
+import chess.pgn
 import numpy as np
 from collections.abc import Hashable
 
-
-def state_to_tensor(boards: list, seen_states: dict) -> np.ndarray:
+def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> dict:
     """
-    Return a 119x8x8 tensor of board state where
-      - planes 1-112 are the last 8 piece placements and their
-        repetition counter planes (12 for piece placement and 2 repetition counter planes each)
-      - planes 113-119 are global features.
-    :param boards: A list of the last 8 board states (if less than 8, fill with empty boards)
-    :param seen_states: A dictionary of seen state, repetition count pairs
+    Create tensors for all states of the game
+    :param game: Game object to be converted
+    :param history_count: Number of states to include in history
+    :return: A dict with state tensors as keys and next moves as Move objects as values
+    """
+    current_board = game.board()
+    board_history = np.array((history_count, 14, 8, 8))
+    seen_states = {get_state_hash(current_board): 1}
+    tensors = {}
+
+    for move in current_board.move_stack:
+        current_board.push_san(move.uci())
+        state = state_to_tensor(board_history, current_board, seen_states, history_count)
+        tensors[state] = move
+
+    return tensors
+
+
+def state_to_tensor(
+        state_history: np.ndarray,
+        new_board: chess.Board,
+        seen_states: dict,
+        history_count: int=1
+) -> np.ndarray:
+    """
+    Return a (h*14 + 7)x8x8 tensor of board state where
+      - planes 1-(h*14) are the last h piece placements and their
+        repetition counter-planes (12 for piece placement and 2 repetition counter planes each)
+      - planes (h*14 + 1)-(h*14 + 8) are global features.
+    :param state_history: A list of last h piece placement tensors
+    :param new_board: Current state
+    :param seen_states: Seen state, repetition count pairs
+    :param history_count: History state count
     :return: 119x8x8 tensor of board state
     """
-    state_planes = np.zeros((119, 8, 8), dtype=np.float32)
 
-    boards.reverse()
-    for i, board in enumerate(boards):
-        piece_placement = get_piece_placement_planes(board)
-        repetition_planes = get_repetition_counter_planes(board, seen_states)
-        state_planes[i * 14:(i + 1) * 14, :, :] = np.concatenate([piece_placement, repetition_planes])
-    state_planes[112:, :, :] = get_global_planes(boards[0])
+    # Move all previous states by one
+    for i in range(history_count - 1, 0, -1):
+        state_history[i] = state_history[i - 1]
+    state_history[0] = get_piece_placement_planes(new_board)
 
-    return state_planes
+    repetition_planes = get_repetition_counter_planes(new_board, seen_states)
+    return np.concatenate(np.stack(state_history), repetition_planes)
 
 
 def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
