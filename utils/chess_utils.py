@@ -11,14 +11,14 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> dict:
     :return: A dict with state tensors as keys and next moves as Move objects as values
     """
     current_board = game.board()
-    board_history = np.array((history_count, 14, 8, 8), dtype=np.float32)
+    state_history = np.zeros((history_count, 14, 8, 8), dtype=np.float32)
     seen_states = {get_state_hash(current_board): 1}
     tensors = {}
 
-    for move in current_board.move_stack:
-        current_board.push_san(move.uci())
-        state = state_to_tensor(board_history, current_board, seen_states, history_count)
-        tensors[state] = move
+    for move in game.mainline_moves():
+        current_board.push(move)
+        state = state_to_tensor(state_history, current_board, seen_states, history_count)
+        tensors[state.tobytes()] = move
 
     return tensors
 
@@ -27,7 +27,7 @@ def state_to_tensor(
         state_history: np.ndarray,
         new_board: chess.Board,
         seen_states: dict,
-        history_count: int=1
+        history_count: int=8
 ) -> np.ndarray:
     """
     Return a (h*14 + 7)x8x8 tensor of board state where
@@ -51,7 +51,7 @@ def state_to_tensor(
     ])
     global_planes = get_global_planes(new_board)
 
-    return np.concatenate(np.stack(state_history), global_planes)
+    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes], axis=0)
 
 
 def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
@@ -151,12 +151,17 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
 
 if __name__ == "__main__":
     states = {get_state_hash(chess.Board()): 1}
+    history = np.zeros((8, 14, 8, 8), dtype=np.float32)
 
     example_board = chess.Board()
+    state_to_tensor(history, example_board, states)
     example_board.push_san("Nf3")
+    state_to_tensor(history, example_board, states)
     example_board.push_san("Nc6")
-    state_to_tensor([example_board], states)
+    state_to_tensor(history, example_board, states)
     example_board.push_san("Ng1")
+    state_to_tensor(history, example_board, states)
     example_board.push_san("Nb8")
-    print(state_to_tensor([example_board], states).shape)
-    state_to_tensor([example_board], states)
+    np.set_printoptions(threshold=np.inf)
+
+    print(state_to_tensor(history, example_board, states))
