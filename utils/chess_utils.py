@@ -3,24 +3,39 @@ import chess.pgn
 import numpy as np
 from collections.abc import Hashable
 
-def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> dict:
+def game_to_tensors(game: chess.pgn.Game, history_count: int = 8):
     """
-    Create tensors for all states of the game
-    :param game: Game object to be converted
-    :param history_count: Number of states to include in history
-    :return: A dict with state tensors as keys and next moves as Move objects as values
+    Convert a PGN game into a list of training samples.
+    Each sample is a dict: { state, move, winner }
     """
     current_board = game.board()
     state_history = np.zeros((history_count, 14, 8, 8), dtype=np.float32)
     seen_states = {get_state_hash(current_board): 1}
-    tensors = {}
+    samples = []
+
+    # winner: 1 = white, 0 = black
+    result = game.headers.get("Result", "*")
+    if result == "1-0":
+        winner = 1
+    elif result == "0-1":
+        winner = 0
+    else:
+        return []   # ignore draws or unknown results
 
     for move in game.mainline_moves():
         current_board.push(move)
-        state = state_to_tensor(state_history, current_board, seen_states, history_count)
-        tensors[state.tobytes()] = move
+        state = state_to_tensor(state_history, current_board, seen_states)
 
-    return tensors
+        sample = {
+            "state": state.astype(np.float32),  # shape (119,8,8)
+            "move": move.uci(),                 # store as UCI string for now
+            "winner": winner                    # 1 or 0
+        }
+
+        samples.append(sample)
+
+    return samples
+
 
 
 def state_to_tensor(
