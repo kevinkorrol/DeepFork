@@ -10,19 +10,13 @@ import torch
 
 from utils.chess_utils import game_to_tensors
 
-
-def raw_game_to_ready_tensor(game : chess.pgn.Game):
-
-
-    tensors = game_to_tensors(game) ## returns dict, maybe should return something else
-    # tensors will be inserted into model using ?dataloader? (neural network) and the models output can be compared to made move and winner
-
-    return tensors
-
-
-def load_n_processed_games(n):
+def load_n_processed_games(n) -> list:
+    """
+    :param n: Number of games to load
+    :return: List of gamess
+    """
     games = []
-    root = Path.cwd().parent
+    root = get_project_root()
     data_dir = root / "data/raw"
 
     files = list(data_dir.glob("*.pgn"))
@@ -30,37 +24,51 @@ def load_n_processed_games(n):
 
     for path in files:
         with open(path, encoding="utf-8") as pgn:
-            while count < n:
-                game = chess.pgn.read_game(pgn)
-                if game is None:
-                    break
+            game = chess.pgn.read_game(pgn)
+            while game and count < n:
                 games.append(game)
                 count += 1
-        if count >= n:
-            break
+                if count >= n:
+                    return games
+                game = chess.pgn.read_game(pgn)
 
     return games
 
 
-def make_training_samples(n):
+def make_training_samples(n) -> list:
+    """
+    :param n: Number of games to load
+    :return: List of samples
+    """
     games = load_n_processed_games(n)
     all_samples = []
 
     for game in games:
         samples = game_to_tensors(game)
-        all_samples.append(samples)
+        all_samples.extend(samples)
 
     return all_samples
 
 
 
-def save_samples(samples):
-    processed_dir = Path.cwd().parent / "data/processed"
+def save_samples(samples) -> None:
+    """
+    :param samples: list of samples
+    :return: Nothing, saves samples to games.pt
+    """
+    root = get_project_root()
+    processed_dir = root / "data/processed"
     processed_dir.mkdir(exist_ok=True, parents=True)
 
     torch.save(samples, processed_dir / "games.pt")
-    print(f"Saved {len(samples)} samples to games.pt")
+    print(f"Saved {len(samples)} sample(s) to games.pt")
 
+
+def get_project_root() -> Path:
+    """
+    :return: Path to the project root
+    """
+    return Path(__file__).resolve().parents[1]
 
 if __name__ == '__main__':
     n_games = 1
