@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from pathlib import Path
 import chess
 import chess.pgn
@@ -5,13 +6,16 @@ import torch
 from utils.chess_utils import game_to_tensors
 
 def get_project_root() -> Path:
+    """
+    :return: Path to the project root
+    """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n=None):
+def load_n_processed_games(n=None) -> Generator[chess.pgn.Game, None, None]:
     """
     Loads n games from a .pt file.
-    :param n:
-    :return:
+    :param n: Number of games that will be put into one .pt file
+    :yield: A generator of games
     """
     root = get_project_root()
     raw_dir = root / "data/raw"
@@ -29,10 +33,9 @@ def load_n_processed_games(n=None):
                 if n is not None and count >= n:
                     return
 
-def save_all_games_in_files(n_per_file=100):
+def save_all_games_in_files(n_per_file=100) -> None:
     """
     :param n_per_file: Number of games to save in each file
-    :return:
     """
     root = get_project_root()
     processed_dir = root / "data/processed"
