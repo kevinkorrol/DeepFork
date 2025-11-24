@@ -153,12 +153,22 @@ def get_move_distribution(action_distribution: np.ndarray[np.float32], board: ch
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.
-    :param action_distribution:
-    :param board:
-    :return:
+    :param action_distribution: Probability istribution over all possible actions
+    :param board: Current board state
+    :return: Probability distribution over all legal moves
     """
-    legal_moves = board.legal_moves
-    return {}
+    legal_moves = list(board.legal_moves)
+    legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
+
+    move_mask = np.zeros(4762, dtype=bool)
+    move_mask[legal_moves_idx] = True
+
+    legal_actions = action_distribution[move_mask]
+
+    # Normalize it
+    legal_actions /= legal_actions.sum()
+
+    return {move: prob for move, prob in zip(legal_moves, legal_actions)}
 
 
 def action_to_move(action_index: int, board: chess.Board) -> str:
@@ -231,7 +241,6 @@ if __name__ == "__main__":
     history = np.zeros((8, 14, 8, 8), dtype=np.float32)
 
     example_board = chess.Board()
-    print(example_board.legal_moves)
     state_to_tensor(history, example_board, states)
     example_board.push_san("Nf3")
     state_to_tensor(history, example_board, states)
@@ -242,4 +251,18 @@ if __name__ == "__main__":
     example_board.push_san("Nb8")
     np.set_printoptions(threshold=np.inf)
 
-    print(state_to_tensor(history, example_board, states))
+    print("Legal moves:")
+    for m in list(example_board.legal_moves):
+        print(m, move_to_action(m))
+
+    # Example random action distribution
+    raw_distribution = np.random.rand(4762).astype(np.float32)
+    legal_dist = get_move_distribution(raw_distribution, example_board)
+
+    print("\nLegal move distribution:")
+    print(legal_dist)
+
+    print("\nSum of legal distribution:", sum(legal_dist.values()))
+    print("Number of legal moves:", len(legal_dist))
+
+    # print(state_to_tensor(history, example_board, states))
