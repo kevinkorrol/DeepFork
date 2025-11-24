@@ -171,11 +171,6 @@ def get_move_distribution(action_distribution: np.ndarray[np.float32], board: ch
     return {move: prob for move, prob in zip(legal_moves, legal_actions)}
 
 
-def action_to_move(action_index: int, board: chess.Board) -> str:
-    # TODO
-    return ""
-
-
 def move_to_action(move: chess.Move) -> int:
     """
     Converts the given move to an index of the 4672-dimensional action vector.
