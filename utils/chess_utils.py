@@ -105,7 +105,7 @@ def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
                 if piece_int & 1:
                     rank = k // 8
                     piece_placement[i * 6 + j, rank, k - rank * 8] = 1
-                piece_int >>= 1
+                piece_int <<= 1
     return piece_placement
 
 
@@ -180,6 +180,88 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
     return global_planes
 
 
+def get_move_distribution(action_distribution: np.ndarray[np.float32], board: chess.Board) -> dict:
+    """
+    Gets distribution of moves from action distribution by mapping only legal moves from it.
+    The action array represents a 73x8x8 action encoding.
+    :param action_distribution: Probability istribution over all possible actions
+    :param board: Current board state
+    :return: Probability distribution over all legal moves
+    """
+    legal_moves = list(board.legal_moves)
+    legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
+
+    move_mask = np.zeros(4672, dtype=bool)
+    move_mask[legal_moves_idx] = True
+
+    legal_actions = action_distribution[move_mask]
+
+    # Normalize it
+    legal_actions /= legal_actions.sum()
+
+    return {move: prob for move, prob in zip(legal_moves, legal_actions)}
+
+
+def move_to_action(move: chess.Move) -> int:
+    """
+    Converts the given move to an index of the 4672-dimensional action vector.
+
+    The action vector is a representation of 73 move shapes for each of the squares on the board (hence the 73x8x8).
+      - Planes 0-56 are queenlike moves that also cover bishops and rooks, 8 directions x 1-7 dist.
+      - Planes 56-64 are for night moves.
+      - Planes 64-73 are for pawn promotions, where a pawn can promote in three directions and can
+        be converted to knight, bishop or rook (queen is default so not counted here).
+
+    :param move: The chess move to be encoded
+    :return: An integer representation of the given chess move
+    """
+    square_offset = move.from_square * 64
+
+    from_rank = chess.square_rank(move.from_square)
+    to_rank = chess.square_rank(move.to_square)
+    from_file = chess.square_file(move.from_square)
+    to_file = chess.square_file(move.to_square)
+
+    rank_diff = to_rank - from_rank
+    file_diff = to_file - from_file
+
+    # If the move is horizontal or vertical
+    rooklike = (rank_diff == 0 or file_diff == 0)
+    bishoplike = (abs(rank_diff) == abs(file_diff))
+    queenlike = rooklike or bishoplike
+
+    rank_pos_bit = 1 if rank_diff > 0 else 0
+    file_pos_bit = 1 if file_diff > 0 else 0
+    rook_bit = 1 if rooklike else 0
+
+    if queenlike:
+        # Check if the move is a promotion
+        promotion_piece = move.promotion
+        if promotion_piece is not None and promotion_piece != chess.QUEEN:
+
+            promotion_pieces = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
+            promotion_idx = promotion_pieces.index(promotion_piece) + 1
+
+            # Direction encoding for promotion (0-2)
+            # rooklike: bit 2, file_pos_bit: bit 1
+            direction = (rook_bit << 1) + file_pos_bit
+
+            return square_offset + direction * 3 + promotion_idx + 63 # Add 63 to account for queen- and knightlike moves
+
+        # Encode the direction of the move with 3 bits (8 directions)
+        direction = (rook_bit << 2) + (rank_pos_bit << 1) + file_pos_bit
+        distance = chess.square_distance(move.from_square, move.to_square)
+
+        return square_offset + direction * 8 + distance
+
+    # If the move isn't a queenlike move, then it must be a knightlike move
+    knight_rank_1 = rank_diff & 1 # Check if the knight moves two ranks or one
+
+    # Encode the direction of the move with 3 bits (8 directions)
+    direction_encoding = (knight_rank_1 << 2) + (rank_pos_bit << 1) + file_pos_bit + 1
+    return square_offset + direction_encoding + 55 # Add 55 to account for queenlike moves
+
+
 if __name__ == "__main__":
     states = {get_state_hash(chess.Board()): 1}
     history = np.zeros((8, 14, 8, 8), dtype=np.float32)
@@ -195,4 +277,18 @@ if __name__ == "__main__":
     example_board.push_san("Nb8")
     np.set_printoptions(threshold=np.inf)
 
-    print(state_to_tensor(history, example_board, states))
+    print("Legal moves:")
+    for m in list(example_board.legal_moves):
+        print(m, move_to_action(m))
+
+    # Example random action distribution
+    raw_distribution = np.random.rand(4672).astype(np.float32)
+    legal_dist = get_move_distribution(raw_distribution, example_board)
+
+    print("\nLegal move distribution:")
+    print(legal_dist)
+
+    print("\nSum of legal distribution:", sum(legal_dist.values()))
+    print("Number of legal moves:", len(legal_dist))
+
+    # print(state_to_tensor(history, example_board, states))
