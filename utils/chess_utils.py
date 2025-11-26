@@ -38,15 +38,14 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> list:
     return samples
 
 
-
 def state_to_tensor(
         state_history: np.ndarray,
         new_board: chess.Board,
-        seen_states: dict,
+        seen_states: dict[Hashable, int],
         history_count: int=8
 ) -> np.ndarray:
     """
-    Return a (h*14 + 7)x8x8 tensor of board state where
+    Update state_history and return a (h*14 + 7)x8x8 tensor of board state where
       - planes 1-(h*14) are the last h piece placements and their
         repetition counter-planes (12 for piece placement and 2 repetition counter planes each)
       - planes (h*14 + 1)-(h*14 + 8) are global features.
@@ -57,6 +56,25 @@ def state_to_tensor(
     :return: 119x8x8 tensor of board state
     """
 
+    update_history(state_history, new_board, history_count, seen_states)
+    global_planes = get_global_planes(new_board)
+
+    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes], axis=0)
+
+
+def update_history(
+        state_history: np.ndarray,
+        new_board: chess.Board,
+        history_count: int,
+        seen_states: dict[Hashable, int]
+) -> None:
+    """
+    Update state history and seen states with new bpard.
+    :param state_history: A list of last h piece placement tensors
+    :param new_board: Current state
+    :param history_count: History state count
+    :param seen_states: Seen state, repetition count pairs
+    """
     # Move all previous states by one
     for i in range(history_count - 1, 0, -1):
         state_history[i] = state_history[i - 1]
@@ -65,9 +83,6 @@ def state_to_tensor(
         get_repetition_counter_planes(new_board, seen_states),
         get_piece_placement_planes(new_board)
     ])
-    global_planes = get_global_planes(new_board)
-
-    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes], axis=0)
 
 
 def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
@@ -113,9 +128,9 @@ def get_state_hash(board: chess.Board) -> Hashable:
     )
 
 
-def get_repetition_counter_planes(board: chess.Board, seen_states: dict) -> np.ndarray:
+def get_repetition_counter_planes(board: chess.Board, seen_states: dict[Hashable, int]) -> np.ndarray:
     """
-    Return 2x8x8 tensor of repetition counter.
+    Return 2x8x8 tensor of repetition counter and update seen_states.
     If 0 repetitions, return all zeros.
     If 1 repetition, return plane 1 = ones, plane 2 = zeros.
     If 2 or more repetitions, return plane 1 = zeros, plane 2 = ones.
