@@ -160,7 +160,7 @@ def get_move_distribution(action_distribution: np.ndarray[np.float32], board: ch
     legal_moves = list(board.legal_moves)
     legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
 
-    move_mask = np.zeros(4762, dtype=bool)
+    move_mask = np.zeros(4672, dtype=bool)
     move_mask[legal_moves_idx] = True
 
     legal_actions = action_distribution[move_mask]
@@ -251,7 +251,7 @@ if __name__ == "__main__":
         print(m, move_to_action(m))
 
     # Example random action distribution
-    raw_distribution = np.random.rand(4762).astype(np.float32)
+    raw_distribution = np.random.rand(4672).astype(np.float32)
     legal_dist = get_move_distribution(raw_distribution, example_board)
 
     print("\nLegal move distribution:")
