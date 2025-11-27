@@ -180,7 +180,10 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
     return global_planes
 
 
-def get_move_distribution(action_distribution: np.ndarray[np.float32], board: chess.Board) -> dict:
+def get_move_distribution(
+        action_distribution: np.ndarray[np.float32],
+        board: chess.Board
+) -> dict[chess.Move, np.float32]:
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.
