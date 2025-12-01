@@ -1,7 +1,15 @@
+"""
+Monte Carlo Tree Search (MCTS) implementation for the DeepFork chess agent.
+
+This module defines the MCTSNode structure and the MCTS search function that
+leverages policy and value estimates from the DeepForkNet model to guide search.
+"""
+
 from __future__ import annotations
 from typing import Hashable
 from utils.chess_utils import state_to_tensor, update_history, get_move_distribution
 from model import DeepForkNet
+from utils.model_utils import visualize_mcts_graph
 
 import math
 import torch
@@ -10,6 +18,12 @@ import numpy as np
 
 
 class MCTSNode:
+    """
+    A single node in the MCTS search tree representing a chess position.
+
+    Tracks prior estimate, visit count, total value, and children, and
+    provides utilities for PUCT-based selection and backpropagation.
+    """
     def __init__(
             self,
             board: chess.Board,
@@ -25,7 +39,6 @@ class MCTSNode:
         self.parent = parent
         self.move = move
         self.is_expanded = False
-        self.num_children = 0
         self.children = {}
         self.prior_est = prior_est
         self.visit_count = 0
@@ -80,9 +93,6 @@ class MCTSNode:
     def add_or_get_child(self, move: chess.Move, history_count: int) -> MCTSNode:
         child, est = self.children[move]
         if child is None:
-            self.num_children += 1
-            if self.num_children == len(self.children):
-                self.is_expanded = True
             board_copy = self.board.copy()
             board_copy.push(move)
             state_history_copy = np.copy(self.state_history)
@@ -106,7 +116,7 @@ class MCTSNode:
         Expand the current node by creating all of its children objects.
         :param move_distr: Policy head estimations from the model
         """
-
+        self.is_expanded = True
         self.children = {move: [None, est] for move, est in move_distr.items()}
 
 
@@ -130,15 +140,46 @@ class MCTSNode:
             node = node.parent
             value = -value # Flip value for the other player
 
+
+    def select_best_child(self) -> chess.Move:
+        """
+        Select the move that leads to the most visited child from the root.
+
+        :return: Move associated with the child with highest visit count
+        """
+        best_move = None
+        best_visits = -1
+        for move, (child, _) in self.children.items():
+            current_visits = child.visit_count if child is not None else 0
+            if child is not None and current_visits > best_visits:
+                best_visits = current_visits
+                best_move = move
+        return best_move
+
+
 def MCTS(
         game_state: chess.Board,
         num_sim: int,
         model: DeepForkNet,
+        device: str,
         seen_states: dict[Hashable, int],
         state_history: np.ndarray,
         c_puct: float = 1.0,
         history_count: int = 8
 ) -> chess.Move:
+    """
+    Run a Monte Carlo Tree Search starting from the given game state.
+
+    :param game_state: Starting chess position
+    :param num_sim: Number of simulations to run from the root
+    :param model: Neural network providing policy and value estimates
+    :param device: Torch device identifier (e.g., 'cpu' or 'cuda')
+    :param seen_states: Map from state hash to repetition count
+    :param state_history: Rolling tensor buffer of prior states
+    :param c_puct: Exploration constant for PUCT formula
+    :param history_count: Number of historical states to include
+    :return: The selected best move from the root after search
+    """
     root = MCTSNode(board=game_state, seen_states=seen_states.copy(), state_history=state_history.copy())
     for i in range(num_sim):
         leaf = root
@@ -148,12 +189,12 @@ def MCTS(
             leaf = leaf.add_or_get_child(best_move, history_count)
 
         state_tensor = state_to_tensor(leaf.state_history, leaf.board, leaf.seen_states, history_count)
-        state_tensor = torch.from_numpy(state_tensor).float().cpu()
+        state_tensor = torch.from_numpy(state_tensor).float().to(device)
         # Model prediction
-        prior_ests, value_est = model(state_tensor)
+        value_est, prior_ests = model(state_tensor)
 
         # Convert torch tensors into numpy shapes
-        prior_ests = prior_ests.detach().cpu().numpy().reshape(-1)
+        prior_ests = prior_ests.detach().to(device).numpy().reshape(-1)
         value_est = value_est.item()
 
         if not leaf.is_terminal():
@@ -162,4 +203,5 @@ def MCTS(
 
         # Backpropagation
         leaf.backprop(value_est)
-    return max(root.children, key=lambda child: child.visit_count)
+    visualize_mcts_graph(root)
+    return root.select_best_child()

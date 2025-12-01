@@ -3,3 +3,5 @@
 .idea/
 .venv/
 venv/
+**/__pycache__/**
+**/mcts_tree**

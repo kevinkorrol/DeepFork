@@ -1,3 +1,10 @@
+"""
+Data preprocessing utilities for converting PGN games into training tensors.
+
+Includes helpers to locate project paths, stream chess games from PGN files,
+and serialize processed samples to torch .pt files in fixed-size shards.
+"""
+
 from collections.abc import Generator
 from pathlib import Path
 import chess
@@ -13,8 +20,8 @@ def get_project_root() -> Path:
 
 def load_n_processed_games(n=None) -> Generator[chess.pgn.Game, None, None]:
     """
-    Loads n games from a .pt file.
-    :param n: Number of games that will be put into one .pt file
+    Stream up to n chess games from PGN files under data/raw.
+    :param n: Maximum number of games to yield (None for all)
     :yield: A generator of games
     """
     root = get_project_root()
@@ -35,6 +42,8 @@ def load_n_processed_games(n=None) -> Generator[chess.pgn.Game, None, None]:
 
 def save_all_games_in_files(n_per_file=100) -> None:
     """
+    Save processed games into chunked .pt files under data/processed.
+
     :param n_per_file: Number of games to save in each file
     """
     root = get_project_root()

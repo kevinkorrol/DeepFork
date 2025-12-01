@@ -1,3 +1,10 @@
+"""
+Chess-related tensor utilities and encodings for DeepFork.
+
+Includes helpers to build input tensors from game states, maintain history,
+encode global features, and map between chess moves and the 73x8x8 action space.
+"""
+
 import chess
 import chess.pgn
 import numpy as np
@@ -69,7 +76,7 @@ def update_history(
         seen_states: dict[Hashable, int]
 ) -> None:
     """
-    Update state history and seen states with new bpard.
+    Update state history and seen states with new board.
     :param state_history: A list of last h piece placement tensors
     :param new_board: Current state
     :param history_count: History state count
@@ -187,7 +194,7 @@ def get_move_distribution(
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.
-    :param action_distribution: Probability istribution over all possible actions
+    :param action_distribution: Probability distribution over all possible actions
     :param board: Current board state
     :return: Probability distribution over all legal moves
     """
@@ -211,9 +218,9 @@ def move_to_action(move: chess.Move) -> int:
 
     The action vector is a representation of 73 move shapes for each of the squares on the board (hence the 73x8x8).
       - Planes 0-56 are queenlike moves that also cover bishops and rooks, 8 directions x 1-7 dist.
-      - Planes 56-64 are for night moves.
+      - Planes 56-64 are for knight moves.
       - Planes 64-73 are for pawn promotions, where a pawn can promote in three directions and can
-        be converted to knight, bishop or rook (queen is default so not counted here).
+        be converted to knight, bishop, or rook (queen is default so not counted here).
 
     :param move: The chess move to be encoded
     :return: An integer representation of the given chess move
