@@ -79,7 +79,8 @@ class OutBlock(nn.Module):
 
         # Policy head
         p = F.relu(self.bnP(self.convP(data)))
-        p = self.lsmP(p.view(-1, 73 * 8 * 8))
+        p = p.view(p.size(0), -1)
+        p = self.lsmP(p)
 
         return v, p
 
