@@ -10,6 +10,7 @@ from pathlib import Path
 import chess
 import chess.pgn
 import torch
+from tqdm import tqdm
 from utils.chess_utils import game_to_tensors
 
 def get_project_root() -> Path:
@@ -18,21 +19,26 @@ def get_project_root() -> Path:
     """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n=None) -> Generator[chess.pgn.Game, None, None]:
+def load_n_processed_games(n=None, origin_dir="data/raw") -> Generator[chess.pgn.Game, None, None]:
     """
     Stream up to n chess games from PGN files under data/raw.
     :param n: Maximum number of games to yield (None for all)
+    :param origin_dir: A directory that is read
     :yield: A generator of games
     """
     root = get_project_root()
-    raw_dir = root / "data/raw"
+    raw_dir = root / origin_dir
     files = list(raw_dir.glob("*.pgn"))
     count = 0
 
     for path in files:
         with open(path, encoding="utf-8") as pgn:
             while True:
-                game = chess.pgn.read_game(pgn)
+                try:
+                    game = chess.pgn.read_game(pgn)
+                except Exception as e:
+                    print(f"Skipping a corrupted game in file {path.name}: {e}")
+                    continue
                 if game is None:
                     break
                 yield game
@@ -68,6 +74,29 @@ def save_all_games_in_files(n_per_file=100) -> None:
     if buffer:
         torch.save(buffer, processed_dir / f"games_{file_idx:03d}.pt")
 
+
+def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
+    """
+    Filters all games in /temp to be only with ratings over 2400 and writes them to dataset.pgn.
+    """
+    root = get_project_root()
+    dataset_path = root / "data/raw/dataset.pgn"
+    count = 0
+
+    with open(dataset_path, 'w') as dest:
+        for game in tqdm(load_n_processed_games(origin_dir="data/temp"),
+                         desc="Filtering Games",
+                         unit="games",
+                         bar_format=""):
+            white_elo = game.headers.get('WhiteElo')
+            black_elo = game.headers.get("BlackElo")
+            if white_elo and int(white_elo) > min_elo \
+                    and black_elo \
+                    and int(black_elo) > min_elo \
+                    and game.end().ply() > min_half_moves:
+                count += 1
+                print(game, file=dest, end="\n\n")
+    print(f"Processed {count} games.")
 
 
 if __name__ == "__main__":

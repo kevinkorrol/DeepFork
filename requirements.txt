@@ -1,7 +1,7 @@
+tqdm
 graphviz
 kivy-chess-board
 kivy
-torch
 chess
 pandas
 numpy
