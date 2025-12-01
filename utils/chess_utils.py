@@ -1,3 +1,10 @@
+"""
+Chess-related tensor utilities and encodings for DeepFork.
+
+Includes helpers to build input tensors from game states, maintain history,
+encode global features, and map between chess moves and the 73x8x8 action space.
+"""
+
 import chess
 import chess.pgn
 import numpy as np
@@ -38,15 +45,14 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> list:
     return samples
 
 
-
 def state_to_tensor(
         state_history: np.ndarray,
         new_board: chess.Board,
-        seen_states: dict,
+        seen_states: dict[Hashable, int],
         history_count: int=8
 ) -> np.ndarray:
     """
-    Return a (h*14 + 7)x8x8 tensor of board state where
+    Update state_history and return a (h*14 + 7)x8x8 tensor of board state where
       - planes 1-(h*14) are the last h piece placements and their
         repetition counter-planes (12 for piece placement and 2 repetition counter planes each)
       - planes (h*14 + 1)-(h*14 + 8) are global features.
@@ -57,6 +63,25 @@ def state_to_tensor(
     :return: 119x8x8 tensor of board state
     """
 
+    update_history(state_history, new_board, history_count, seen_states)
+    global_planes = get_global_planes(new_board)
+
+    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes], axis=0)
+
+
+def update_history(
+        state_history: np.ndarray,
+        new_board: chess.Board,
+        history_count: int,
+        seen_states: dict[Hashable, int]
+) -> None:
+    """
+    Update state history and seen states with new board.
+    :param state_history: A list of last h piece placement tensors
+    :param new_board: Current state
+    :param history_count: History state count
+    :param seen_states: Seen state, repetition count pairs
+    """
     # Move all previous states by one
     for i in range(history_count - 1, 0, -1):
         state_history[i] = state_history[i - 1]
@@ -65,9 +90,6 @@ def state_to_tensor(
         get_repetition_counter_planes(new_board, seen_states),
         get_piece_placement_planes(new_board)
     ])
-    global_planes = get_global_planes(new_board)
-
-    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes], axis=0)
 
 
 def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
@@ -113,9 +135,9 @@ def get_state_hash(board: chess.Board) -> Hashable:
     )
 
 
-def get_repetition_counter_planes(board: chess.Board, seen_states: dict) -> np.ndarray:
+def get_repetition_counter_planes(board: chess.Board, seen_states: dict[Hashable, int]) -> np.ndarray:
     """
-    Return 2x8x8 tensor of repetition counter.
+    Return 2x8x8 tensor of repetition counter and update seen_states.
     If 0 repetitions, return all zeros.
     If 1 repetition, return plane 1 = ones, plane 2 = zeros.
     If 2 or more repetitions, return plane 1 = zeros, plane 2 = ones.
@@ -165,11 +187,14 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
     return global_planes
 
 
-def get_move_distribution(action_distribution: np.ndarray[np.float32], board: chess.Board) -> dict:
+def get_move_distribution(
+        action_distribution: np.ndarray[np.float32],
+        board: chess.Board
+) -> dict[chess.Move, np.float32]:
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.
-    :param action_distribution: Probability istribution over all possible actions
+    :param action_distribution: Probability distribution over all possible actions
     :param board: Current board state
     :return: Probability distribution over all legal moves
     """
@@ -193,9 +218,9 @@ def move_to_action(move: chess.Move) -> int:
 
     The action vector is a representation of 73 move shapes for each of the squares on the board (hence the 73x8x8).
       - Planes 0-56 are queenlike moves that also cover bishops and rooks, 8 directions x 1-7 dist.
-      - Planes 56-64 are for night moves.
+      - Planes 56-64 are for knight moves.
       - Planes 64-73 are for pawn promotions, where a pawn can promote in three directions and can
-        be converted to knight, bishop or rook (queen is default so not counted here).
+        be converted to knight, bishop, or rook (queen is default so not counted here).
 
     :param move: The chess move to be encoded
     :return: An integer representation of the given chess move
