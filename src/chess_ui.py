@@ -26,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash
 
 BOARD_SIZE = 600
-NUM_SIM = 800
+NUM_SIM = 50
 
 
 class ChessUI(App):
@@ -88,7 +88,6 @@ class ChessUI(App):
         self.states = {get_state_hash(chess.Board()): 1}
         self.history = np.zeros((self.history_count, 14, 8, 8), dtype=np.float32)
         self.model = model
-        self.on_start()
 
 
     def build(self):
@@ -127,6 +126,7 @@ class ChessUI(App):
 
         Clock.schedule_once(lambda x: self.clanker_make_move())
 
+
     def process_move(self, cb: ChessBoard, move: chess.Move) -> None:
         """
         Handle a user's attempted move from the chessboard widget.
@@ -160,8 +160,9 @@ class ChessUI(App):
 
         Stops early if the game is over or the 50-move rule threshold is met.
         """
+        agent_is_white = self.player_color == 'b'
         # Stop if game over
-        if self.board.is_game_over() or self.board.halfmove_clock >= 200:
+        if self.board.turn != agent_is_white or self.board.is_game_over() or self.board.halfmove_clock >= 200:
             return
 
         clanker_move = MCTS(
@@ -179,13 +180,14 @@ class ChessUI(App):
 
     def on_start(self):
         """
-        Kivy app lifecycle hook. If the human chose black, let the agent move first.
+        Kivy app lifecycle hook. If the human chose black, let the model move first.
         """
         if self.player_color == 'b':
+            # Schedule the agent's move to run once after the main loop starts
             Clock.schedule_once(lambda dt: self.clanker_make_move())
 
 
 if __name__ == "__main__":
     model = DeepForkNet(depth=10)
     model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/7epochs_allsamples_32batch_size.pt"))
-    ChessUI('w', model).run()
+    ChessUI('b', model).run()

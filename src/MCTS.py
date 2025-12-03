@@ -207,7 +207,7 @@ def MCTS(
 
         # Backpropagation
         leaf.backprop(value_est)
-    visualize_mcts_graph(root)
-    for move, (child, est) in root.children.items():
-        print(f"Child {child.move} count: {child.visit_count} value: {child.total_value}")
+    #visualize_mcts_graph(root)
+    #for move, (child, est) in root.children.items():
+     #   print(f"Child {child.move} count: {child.visit_count} value: {child.total_value}")
     return root.select_best_child()
