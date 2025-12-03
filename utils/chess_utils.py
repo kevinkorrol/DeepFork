@@ -48,7 +48,7 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> list:
 def state_to_tensor(
         state_history: np.ndarray,
         new_board: chess.Board,
-        seen_states: dict[Hashable, int],
+        seen_states: dict,
         history_count: int=8
 ) -> np.ndarray:
     """
@@ -73,7 +73,7 @@ def update_history(
         state_history: np.ndarray,
         new_board: chess.Board,
         history_count: int,
-        seen_states: dict[Hashable, int]
+        seen_states: dict
 ) -> None:
     """
     Update state history and seen states with new board.
@@ -135,7 +135,7 @@ def get_state_hash(board: chess.Board) -> Hashable:
     )
 
 
-def get_repetition_counter_planes(board: chess.Board, seen_states: dict[Hashable, int]) -> np.ndarray:
+def get_repetition_counter_planes(board: chess.Board, seen_states: dict) -> np.ndarray:
     """
     Return 2x8x8 tensor of repetition counter and update seen_states.
     If 0 repetitions, return all zeros.
@@ -190,7 +190,7 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
 def get_move_distribution(
         action_distribution: np.ndarray[np.float32],
         board: chess.Board
-) -> dict[chess.Move, np.float32]:
+) -> dict:
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.

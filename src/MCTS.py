@@ -27,7 +27,7 @@ class MCTSNode:
     def __init__(
             self,
             board: chess.Board,
-            seen_states: dict[Hashable, int],
+            seen_states: dict,
             state_history: np.ndarray,
             prior_est: np.float32 = 0.0,
             parent: MCTSNode = None,
@@ -115,7 +115,7 @@ class MCTSNode:
         return child
 
 
-    def expand(self, move_distr: dict[chess.Move, np.float32]) -> None:
+    def expand(self, move_distr: dict) -> None:
         """
         Expand the current node by creating all of its children objects.
         :param move_distr: Policy head estimations from the model
@@ -124,7 +124,7 @@ class MCTSNode:
         self.children = {move: [None, est] for move, est in move_distr.items()}
 
 
-    def add_dirichlet_noise(self, prior_ests: dict[int, np.float32]):
+    def add_dirichlet_noise(self, prior_ests: dict):
         # TODO RL
         return {
             idx: 0.75 * est + 0.25 * np.random.dirichlet(np.zeros([len(prior_ests)], dtype=np.float32) + 0.3)
@@ -166,7 +166,7 @@ def MCTS(
         num_sim: int,
         model: DeepForkNet,
         device: str,
-        seen_states: dict[Hashable, int],
+        seen_states: dict,
         state_history: np.ndarray,
         c_puct: float = 0.05, # The bigger, the more it relies on net prediction
         history_count: int = 8

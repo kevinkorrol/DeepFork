@@ -126,7 +126,7 @@ def get_html_board_label(node) -> str:
     return html_table
 
 
-def to_graph_data(node, node_id: int = 0, graph_data: dict = None) -> tuple[dict, int]:
+def to_graph_data(node, node_id: int = 0, graph_data: dict = None) -> tuple:
     """
     Recursively collect nodes and edges to represent the MCTS tree in Graphviz.
 
