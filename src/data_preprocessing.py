@@ -89,14 +89,18 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
                          desc="Filtering Games",
                          unit="games",
                          bar_format=""):
-            white_elo = game.headers.get('WhiteElo')
-            black_elo = game.headers.get("BlackElo")
-            if white_elo and int(white_elo) > min_elo \
-                    and black_elo \
-                    and int(black_elo) > min_elo \
-                    and game.end().ply() > min_half_moves:
-                count += 1
-                print(game, file=dest, end="\n\n")
+            try:
+                white_elo = game.headers.get('WhiteElo')
+                black_elo = game.headers.get("BlackElo")
+                if white_elo and int(white_elo) > min_elo \
+                        and black_elo \
+                        and int(black_elo) > min_elo \
+                        and game.end().ply() > min_half_moves:
+                    count += 1
+                    print(game, file=dest, end="\n\n")
+            except Exception as e:
+                print(f"Skipping a corrupted game: {e}")
+                continue
     print(f"Processed {count} games.")
 
 
