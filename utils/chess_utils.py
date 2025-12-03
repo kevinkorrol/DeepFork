@@ -188,7 +188,7 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
 
 
 def get_move_distribution(
-        action_distribution: np.ndarray[np.float32],
+        action_distribution: np.ndarray,
         board: chess.Board
 ) -> dict:
     """
