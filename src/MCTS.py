@@ -83,7 +83,11 @@ class MCTSNode:
         for move, values in self.children.items():
             child, est = values
             child_visit_count = 0 if child is None else child.visit_count
-            puct = self.Q() + self.U(c_puct, est, child_visit_count)
+            Q_value = child.Q() if child is not None else 0.0
+
+            U_value = self.U(c_puct, est, child_visit_count)
+
+            puct = Q_value + U_value
             if best_value < puct:
                 best_move = move
                 best_value = puct
@@ -148,11 +152,11 @@ class MCTSNode:
         :return: Move associated with the child with highest visit count
         """
         best_move = None
-        best_visits = -1
+        best_value = -1
         for move, (child, _) in self.children.items():
-            current_visits = child.visit_count if child is not None else 0
-            if child is not None and current_visits > best_visits:
-                best_visits = current_visits
+            current_value = child.total_value if child is not None else 0
+            if child is not None and current_value > best_value:
+                best_value = current_value
                 best_move = move
         return best_move
 
@@ -164,7 +168,7 @@ def MCTS(
         device: str,
         seen_states: dict[Hashable, int],
         state_history: np.ndarray,
-        c_puct: float = 1.0,
+        c_puct: float = 0.05, # The bigger, the more it relies on net prediction
         history_count: int = 8
 ) -> chess.Move:
     """
@@ -204,4 +208,6 @@ def MCTS(
         # Backpropagation
         leaf.backprop(value_est)
     visualize_mcts_graph(root)
+    for move, (child, est) in root.children.items():
+        print(f"Child {child.move} count: {child.visit_count} value: {child.total_value}")
     return root.select_best_child()

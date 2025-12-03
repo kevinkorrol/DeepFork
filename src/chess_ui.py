@@ -10,9 +10,14 @@ import random
 import threading
 import chess
 import numpy as np
+import torch
 from kivy.app import App
+from kivy.metrics import dp
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.core.window import Window
+from kivy.uix.popup import Popup
 from kivy_chess_board import ChessBoard
 from kivy.clock import Clock
 
@@ -21,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash
 
 BOARD_SIZE = 600
-NUM_SIM = 50
+NUM_SIM = 800
 
 
 class ChessUI(App):
@@ -33,7 +38,45 @@ class ChessUI(App):
     :param kwargs: Additional App kwargs passed to the Kivy base class
     """
 
-    def __init__(self, player_color: str, **kwargs):
+    class PromotionPopup(Popup):
+        def __init__(self, ui_app, original_move, **kwargs):
+            super().__init__(**kwargs)
+            self.title = 'Pawn Promotion'
+            self.size_hint = (0.7, 0.4)
+            self.auto_dismiss = False
+            self.ui_app = ui_app
+            self.original_move = original_move
+
+            # Layout for buttons
+            content = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
+
+            # Available promotion pieces
+            pieces = ['Queen', 'Rook', 'Bishop', 'Knight']
+
+            for piece_name in pieces:
+                btn = Button(text=piece_name, size_hint_y=None, height=dp(40))
+
+                # The piece character for the UCI string ('q', 'r', 'b', 'n')
+                piece_char = piece_name[0].lower()
+
+                # Bind the button press to the selection handler
+                btn.bind(on_release=lambda instance, char=piece_char: self.select_promotion(char))
+                content.add_widget(btn)
+
+            self.content = content
+
+        def select_promotion(self, piece_char):
+            # 1. Dismiss the popup
+            self.dismiss()
+
+            # 2. Create the final, complete move object (e.g., e7e8q)
+            promotion_uci = self.original_move.uci() + piece_char
+            promoted_move = chess.Move.from_uci(promotion_uci)
+
+            # 3. Execute the move via the main UI app
+            self.ui_app.execute_move(promoted_move)
+
+    def __init__(self, player_color: str, model: DeepForkNet, **kwargs):
         super().__init__(**kwargs)
         self.board = chess.Board()
         self.cb = None
@@ -44,7 +87,7 @@ class ChessUI(App):
         self.history_count = 8
         self.states = {get_state_hash(chess.Board()): 1}
         self.history = np.zeros((self.history_count, 14, 8, 8), dtype=np.float32)
-        self.model = DeepForkNet()
+        self.model = model
         self.on_start()
 
 
@@ -71,11 +114,24 @@ class ChessUI(App):
         layout.add_widget(self.cb)
         return layout
 
+    def execute_move(self, move: chess.Move) -> None:
+        """
+        Pushes a legal move to the board, updates the UI, and schedules the agent's response.
+        :param move: The move to be executed
+        """
+        self.board.push(move)
+        self.cb.board = self.board
+        self.cb.update()
+        self.last_move = move
+        self.move_event.set()
+
+        Clock.schedule_once(lambda x: self.clanker_make_move())
+
     def process_move(self, cb: ChessBoard, move: chess.Move) -> None:
         """
         Handle a user's attempted move from the chessboard widget.
 
-        If the move is legal, updates the internal board, refreshes the UI and
+        If the move is legal, updates the internal board, refreshes the UI, and
         schedules the agent's response move.
 
         :param cb: The chessboard widget
@@ -83,13 +139,20 @@ class ChessUI(App):
         :return: None
         """
         if move in self.board.legal_moves:
-            self.board.push(move)
-            self.cb.board = self.board
-            cb.update()
-            self.last_move = move
-            self.move_event.set()
+            self.execute_move(move)
+            return
 
-            Clock.schedule_once(lambda x: self.clanker_make_move())
+        piece = self.board.piece_at(move.from_square)
+
+        if piece is not None and \
+                piece.piece_type == chess.PAWN and \
+                chess.square_rank(move.to_square) in [0, 7]:
+            # Show the promotion popup
+            popup = self.PromotionPopup(ui_app=self, original_move=move)
+            popup.open()
+            return
+
+        print("Illegal move attempted:", move.uci())
 
     def clanker_make_move(self):
         """
@@ -123,4 +186,6 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    ChessUI('w').run()
+    model = DeepForkNet(depth=10)
+    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/7epochs_allsamples_32batch_size.pt"))
+    ChessUI('w', model).run()

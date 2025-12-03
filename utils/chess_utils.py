@@ -36,7 +36,7 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> list:
 
         sample = {
             "state": state.astype(np.float32),  # shape (119,8,8)
-            "move": move.uci(),                 # store as UCI string for now
+            "action": move_to_action(move),     # store as action index
             "result": result                    # 1, 0 or -1
         }
 

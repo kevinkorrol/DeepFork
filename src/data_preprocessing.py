@@ -19,7 +19,7 @@ def get_project_root() -> Path:
     """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n=None, origin_dir="data/raw") -> Generator[chess.pgn.Game, None, None]:
+def load_n_processed_games(n, origin_dir="data/raw") -> Generator[chess.pgn.Game, None, None]:
     """
     Stream up to n chess games from PGN files under data/raw.
     :param n: Maximum number of games to yield (None for all)
@@ -46,11 +46,13 @@ def load_n_processed_games(n=None, origin_dir="data/raw") -> Generator[chess.pgn
                 if n is not None and count >= n:
                     return
 
-def save_all_games_in_files(n_per_file=100) -> None:
+
+def save_all_games_in_files(samples_per_file=300, n_games=None) -> None:
     """
     Save processed games into chunked .pt files under data/processed.
 
-    :param n_per_file: Number of games to save in each file
+    :param samples_per_file: Number of samples to save in each file
+    :param n_games: Number of games to be loaded
     """
     root = get_project_root()
     processed_dir = root / "data/processed"
@@ -58,18 +60,17 @@ def save_all_games_in_files(n_per_file=100) -> None:
 
     buffer = []
     file_idx = 0
-    games_in_buffer = 0
 
-    for game in load_n_processed_games():
+    for game in tqdm(load_n_processed_games(n_games),
+                     desc="Processing games",
+                     unit="games"):
         samples = game_to_tensors(game)
         buffer.extend(samples)
-        games_in_buffer += 1
 
-        if games_in_buffer >= n_per_file:
-            torch.save(buffer, processed_dir / f"games_{file_idx:03d}.pt")
+        if len(buffer) >= samples_per_file:
+            torch.save(buffer[:samples_per_file], processed_dir / f"games_{file_idx:03d}.pt")
             file_idx += 1
-            buffer = []
-            games_in_buffer = 0
+            buffer = buffer[samples_per_file:]
 
     if buffer:
         torch.save(buffer, processed_dir / f"games_{file_idx:03d}.pt")
@@ -84,7 +85,7 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
     count = 0
 
     with open(dataset_path, 'w') as dest:
-        for game in tqdm(load_n_processed_games(origin_dir="data/temp"),
+        for game in tqdm(load_n_processed_games(None, origin_dir="data/temp"),
                          desc="Filtering Games",
                          unit="games",
                          bar_format=""):
@@ -100,4 +101,4 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
 
 
 if __name__ == "__main__":
-    save_all_games_in_files(n_per_file=100)
+    save_all_games_in_files(samples_per_file=300, n_games=1500)
