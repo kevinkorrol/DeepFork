@@ -19,7 +19,7 @@ def get_project_root() -> Path:
     """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n, origin_dir="data/raw") -> Generator[chess.pgn.Game, None, None]:
+def load_n_processed_games(n, origin_dir="data/raw") -> Generator:
     """
     Stream up to n chess games from PGN files under data/raw.
     :param n: Maximum number of games to yield (None for all)
