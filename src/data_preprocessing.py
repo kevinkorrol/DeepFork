@@ -92,8 +92,8 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
             try:
                 white_elo = game.headers.get('WhiteElo')
                 black_elo = game.headers.get("BlackElo")
-                if white_elo and int(white_elo) > min_elo \
-                        and black_elo \
+                if white_elo.isnumeric() and int(white_elo) > min_elo \
+                        and white_elo.isnumeric() \
                         and int(black_elo) > min_elo \
                         and game.end().ply() > min_half_moves:
                     count += 1
