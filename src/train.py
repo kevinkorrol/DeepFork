@@ -11,13 +11,15 @@ from data_preprocessing import get_project_root
 
 class ChessDataset(IterableDataset):
     def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
-        self.files = sorted(Path(processed_dir).glob("*.pt"))
+        self.files = sorted(Path(processed_dir).glob("*.pt"))[:n_samples // samples_per_file]
         self.samples_per_file = samples_per_file
+        self.count = 0
         print("Found files:", self.files)
 
     def _yield_file(self, path):
         data = torch.load(path)
         for sample in data:
+            self.count += 1
             yield (
                 torch.tensor(sample["state"], dtype=torch.float32),
                 torch.tensor(sample["action"], dtype=torch.long),
@@ -25,9 +27,7 @@ class ChessDataset(IterableDataset):
             )
 
     def __len__(self):
-        if n_samples is None:
-            return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
-        return n_samples
+        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
