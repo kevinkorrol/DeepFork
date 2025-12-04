@@ -120,5 +120,5 @@ if __name__ == "__main__":
         device = 'cpu'
     train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
     save_path = get_project_root() / "models" / "checkpoints"
-    model_name = f"{epochs}epochs_{"all" if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
+    model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
