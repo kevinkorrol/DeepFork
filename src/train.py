@@ -23,7 +23,7 @@ class ChessDataset(Dataset):
         print("Found files:", self.files)
         self.samples_per_file = samples_per_file
 
-        self.total_samples = (len(self.files) - 1) * samples_per_file + len(torch.load(self.files[-1], weights_only=False))
+        self.total_samples = (len(self.files) - 1) * samples_per_file + len(torch.load(self.files[-1]))
 
     def __len__(self):
         return self.total_samples
@@ -42,7 +42,7 @@ class ChessDataset(Dataset):
                 # Re-check the path after acquiring the lock in case another thread/process
                 # loaded it while we were waiting.
                 if file_path != current_file_path:
-                    data = torch.load(file_path, weights_only=False)
+                    data = torch.load(file_path)
                     file_cache[file_path] = data
                     current_file_path = file_path  # Update the path marker
 
