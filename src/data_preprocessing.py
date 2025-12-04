@@ -21,7 +21,7 @@ def get_project_root() -> Path:
     """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n, origin_dir="data/raw") -> Generator:
+def load_n_processed_games(n, start=0, samples_per_file=300, origin_dir="data/raw") -> Generator:
     """
     Stream up to n chess games from PGN files under data/raw.
     :param n: Maximum number of games to yield (None for all)
@@ -33,7 +33,11 @@ def load_n_processed_games(n, origin_dir="data/raw") -> Generator:
     files = list(raw_dir.glob("*.pgn"))
     count = 0
 
-    for path in files:
+    for i, path in enumerate(files, 1):
+        if i * samples_per_file < start:
+            for _ in range(samples_per_file):
+                yield None
+
         with open(path, encoding="utf-8") as pgn:
             while True:
                 try:
@@ -63,11 +67,11 @@ def save_all_games_in_files(samples_per_file=300, start=0, n_games=None, history
     buffer = []
     file_idx = 0
 
-    for i, game in tqdm(enumerate(load_n_processed_games(n_games)),
+    for i, game in tqdm(enumerate(load_n_processed_games(n_games, start=start, samples_per_file=samples_per_file)),
                      desc="Processing games",
                      unit="games",
                      total=n_games + start):
-        if i < start:
+        if game is None:
             continue
         samples = game_to_tensors(game, history_count)
         buffer.extend(samples)
