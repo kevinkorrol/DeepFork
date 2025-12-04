@@ -92,7 +92,7 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=10)
+    model = DeepForkNet(depth=10, history_size=6)
     processed_dir = get_project_root() / "data" / "processed"
     epochs = 7
     n_samples = None
