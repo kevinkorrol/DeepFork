@@ -1,6 +1,4 @@
 import threading
-
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
@@ -13,28 +11,49 @@ import os
 
 from data_preprocessing import get_project_root
 
+file_cache = {}
+current_file_path = None
+cache_lock = threading.Lock()
+
+MAX_CACHE_FILES = 2000
 
 class ChessDataset(Dataset):
     def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
         self.files = sorted(Path(processed_dir).glob("*.pt"))
         print("Found files:", self.files)
-        self.samples = []
+        self.samples_per_file = samples_per_file
 
-        for f in self.files:
-            data = torch.load(f)
-            for sample in data:
-                self.samples.append(sample)
-
-        if n_samples is not None:
-            self.samples = self.samples[:n_samples]
-
-        print(f"Loaded {len(self.samples)} samples from {len(self.files)} files")
+        self.total_samples = (len(self.files) - 1) * samples_per_file + len(torch.load(self.files[-1], weights_only=False))
 
     def __len__(self):
-        return len(self.samples)
+        return self.total_samples
 
     def __getitem__(self, idx):
-        sample = self.samples[idx]
+        file_idx = idx // self.samples_per_file
+        sample_idx_in_file = idx % self.samples_per_file
+
+        file_path = str(self.files[file_idx])
+
+        global file_cache, current_file_path, cache_lock
+
+        if file_path != current_file_path:
+            # Cache Miss: Load the new file and update the cache
+            with cache_lock: # Only one worker loads the file at a time
+                # Re-check the path after acquiring the lock in case another thread/process
+                # loaded it while we were waiting.
+                if file_path != current_file_path:
+                    data = torch.load(file_path, weights_only=False)
+                    file_cache[file_path] = data
+                    current_file_path = file_path  # Update the path marker
+
+                    if len(file_cache) > MAX_CACHE_FILES:
+                        # Find and remove an arbitrary "old" entry
+                        oldest_file = next(iter(file_cache))
+                        if oldest_file != file_path:  # Don't delete the file we just loaded!
+                            del file_cache[oldest_file]
+
+        data = file_cache[file_path]
+        sample = data[sample_idx_in_file]
 
         state = torch.tensor(sample["state"], dtype=torch.float32)
         action = torch.tensor(sample["action"], dtype=torch.long)
