@@ -17,7 +17,7 @@ class ChessDataset(IterableDataset):
             self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
         self.samples_per_file = samples_per_file
         self.count = 0
-        print("Found files:", self.files)
+        print(f"Found {len(self.files)} files")
 
     def _yield_file(self, path):
         data = torch.load(path)
