@@ -1,65 +1,43 @@
 import threading
+from abc import ABC
+
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
-
-from tqdm import tqdm
 
 from model import DeepForkNet
 import os
 
 from data_preprocessing import get_project_root
 
-file_cache = {}
-current_file_path = None
-cache_lock = threading.Lock()
 
-MAX_CACHE_FILES = 2000
-
-class ChessDataset(Dataset):
-    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
+class ChessDataset(IterableDataset):
+    def __init__(self, processed_dir: str):
         self.files = sorted(Path(processed_dir).glob("*.pt"))
         print("Found files:", self.files)
-        self.samples_per_file = samples_per_file
 
-        self.total_samples = (len(self.files) - 1) * samples_per_file + len(torch.load(self.files[-1]))
+    def _yield_file(self, path):
+        data = torch.load(path)
+        for sample in data:
+            yield (
+                torch.tensor(sample["state"], dtype=torch.float32),
+                torch.tensor(sample["action"], dtype=torch.long),
+                torch.tensor(sample["result"], dtype=torch.float32),
+            )
 
-    def __len__(self):
-        return self.total_samples
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
 
-    def __getitem__(self, idx):
-        file_idx = idx // self.samples_per_file
-        sample_idx_in_file = idx % self.samples_per_file
+        if worker_info is None:
+            files = self.files
+        else:
+            num_workers = worker_info.num_workers
+            worker_id = worker_info.id
+            files = self.files[worker_id::num_workers]
 
-        file_path = str(self.files[file_idx])
-
-        global file_cache, current_file_path, cache_lock
-
-        if file_path != current_file_path:
-            # Cache Miss: Load the new file and update the cache
-            with cache_lock: # Only one worker loads the file at a time
-                # Re-check the path after acquiring the lock in case another thread/process
-                # loaded it while we were waiting.
-                if file_path != current_file_path:
-                    data = torch.load(file_path)
-                    file_cache[file_path] = data
-                    current_file_path = file_path  # Update the path marker
-
-                    if len(file_cache) > MAX_CACHE_FILES:
-                        # Find and remove an arbitrary "old" entry
-                        oldest_file = next(iter(file_cache))
-                        if oldest_file != file_path:  # Don't delete the file we just loaded!
-                            del file_cache[oldest_file]
-
-        data = file_cache[file_path]
-        sample = data[sample_idx_in_file]
-
-        state = torch.tensor(sample["state"], dtype=torch.float32)
-        action = torch.tensor(sample["action"], dtype=torch.long)
-        value_target = torch.tensor(sample["result"], dtype=torch.float32)
-
-        return state, action, value_target
+        for f in files:
+            yield from self._yield_file(f)
 
 
 class AZLoss(nn.Module):
@@ -75,11 +53,10 @@ class AZLoss(nn.Module):
 
 
 def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300, n_samples=None):
-    dataset = ChessDataset(processed_dir, samples_per_file, n_samples)
+    dataset = ChessDataset(processed_dir)
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
         num_workers=os.cpu_count(),
         pin_memory=device == 'cuda',
         persistent_workers=True,
@@ -107,7 +84,6 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
             total_loss += current_loss
 
         print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}")
-
 
 
 if __name__ == "__main__":
