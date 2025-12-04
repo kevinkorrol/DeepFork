@@ -49,7 +49,7 @@ def load_n_processed_games(n, origin_dir="data/raw") -> Generator:
                     return
 
 
-def save_all_games_in_files(samples_per_file=300, n_games=None, history_count=8) -> None:
+def save_all_games_in_files(samples_per_file=300, start=0, n_games=None, history_count=8) -> None:
     """
     Save processed games into chunked .pt files under data/processed.
 
@@ -63,9 +63,12 @@ def save_all_games_in_files(samples_per_file=300, n_games=None, history_count=8)
     buffer = []
     file_idx = 0
 
-    for game in tqdm(load_n_processed_games(n_games),
+    for i, game in tqdm(enumerate(load_n_processed_games(n_games)),
                      desc="Processing games",
-                     unit="games"):
+                     unit="games",
+                     total=n_games + start):
+        if i < start:
+            continue
         samples = game_to_tensors(game, history_count)
         buffer.extend(samples)
 
@@ -107,4 +110,4 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
 
 
 if __name__ == "__main__":
-    save_all_games_in_files(samples_per_file=300, n_games=50000, history_count=6)
+    save_all_games_in_files(samples_per_file=300, start=50000, n_games=50000, history_count=6)

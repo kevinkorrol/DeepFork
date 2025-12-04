@@ -168,7 +168,7 @@ def MCTS(
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
-        c_puct: float = 0.05, # The bigger, the more it relies on net prediction
+        c_puct: float = 2, # The bigger, the more it relies on net prediction
         history_count: int = 8
 ) -> chess.Move:
     """
@@ -208,6 +208,6 @@ def MCTS(
         # Backpropagation
         leaf.backprop(value_est)
     #visualize_mcts_graph(root)
-    #for move, (child, est) in root.children.items():
-     #   print(f"Child {child.move} count: {child.visit_count} value: {child.total_value}")
+    for move, (child, est) in root.children.items():
+       print(f"Child {child.move} count: {child.visit_count} value: {child.total_value} est: {child.prior_est}")
     return root.select_best_child()

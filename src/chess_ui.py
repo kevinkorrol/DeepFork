@@ -26,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash
 
 BOARD_SIZE = 600
-NUM_SIM = 50
+NUM_SIM = 700
 
 
 class ChessUI(App):
@@ -76,7 +76,7 @@ class ChessUI(App):
             # 3. Execute the move via the main UI app
             self.ui_app.execute_move(promoted_move)
 
-    def __init__(self, player_color: str, model: DeepForkNet, **kwargs):
+    def __init__(self, player_color: str, model: DeepForkNet, history_size: int, **kwargs):
         super().__init__(**kwargs)
         self.board = chess.Board()
         self.cb = None
@@ -84,7 +84,7 @@ class ChessUI(App):
         self.move_event = threading.Event()
         self.last_move = None
         self.color = random.choice(['w', 'b']) if player_color == 'r' else player_color
-        self.history_count = 8
+        self.history_count = history_size
         self.states = {get_state_hash(chess.Board()): 1}
         self.history = np.zeros((self.history_count, 14, 8, 8), dtype=np.float32)
         self.model = model
@@ -171,7 +171,8 @@ class ChessUI(App):
             self.model,
             'cpu',
             seen_states=self.states,
-            state_history=self.history
+            state_history=self.history,
+            history_count=self.history_count
         )
 
         self.board.push(clanker_move)
@@ -188,6 +189,7 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=10)
-    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/7epochs_allsamples_32batch_size.pt"))
-    ChessUI('b', model).run()
+    history_size = 6
+    model = DeepForkNet(depth=15, history_size=history_size)
+    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/5epochs_allsamples_512batch_size.pt", map_location="cpu"))
+    ChessUI('w', model, history_size).run()
