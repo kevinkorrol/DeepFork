@@ -21,9 +21,7 @@ class ChessDataset(Dataset):
         self.samples = []
 
         for f in self.files:
-
-            with torch.serialization.safe_globals([np.ndarray, np._core.multiarray._reconstruct]):
-                data = torch.load(f)
+            data = torch.load(f)
             for sample in data:
                 self.samples.append(sample)
 
