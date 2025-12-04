@@ -1,8 +1,8 @@
+import math
 import torch
 from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
-
 from model import DeepForkNet
 import os
 
@@ -10,8 +10,8 @@ from data_preprocessing import get_project_root
 
 
 class ChessDataset(IterableDataset):
-    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
-        self.files = sorted(Path(processed_dir).glob("*.pt"))[:n_samples // samples_per_file]
+    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int):
+        self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples // samples_per_file)]
         self.samples_per_file = samples_per_file
         self.count = 0
         print("Found files:", self.files)
@@ -56,7 +56,7 @@ class AZLoss(nn.Module):
 
 
 def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300, n_samples=None):
-    dataset = ChessDataset(processed_dir, samples_per_file)
+    dataset = ChessDataset(processed_dir, samples_per_file, n_samples)
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     model = DeepForkNet(depth=10, history_size=6)
     processed_dir = get_project_root() / "data" / "processed"
     epochs = 1
-    n_samples = 10_000
+    n_samples = 100
     batch_size = 512
     if torch.cuda.is_available():
         device = "cuda"
