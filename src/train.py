@@ -10,7 +10,7 @@ from data_preprocessing import get_project_root
 
 
 class ChessDataset(IterableDataset):
-    def __init__(self, processed_dir: str, samples_per_file: int):
+    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
         self.files = sorted(Path(processed_dir).glob("*.pt"))
         self.samples_per_file = samples_per_file
         print("Found files:", self.files)
@@ -25,7 +25,9 @@ class ChessDataset(IterableDataset):
             )
 
     def __len__(self):
-        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
+        if n_samples is None:
+            return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
+        return n_samples
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -90,8 +92,8 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
 if __name__ == "__main__":
     model = DeepForkNet(depth=10, history_size=6)
     processed_dir = get_project_root() / "data" / "processed"
-    epochs = 7
-    n_samples = None
+    epochs = 1
+    n_samples = 10_000
     batch_size = 512
     if torch.cuda.is_available():
         device = "cuda"
