@@ -3,6 +3,9 @@ import torch
 from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
+
+from tqdm import tqdm
+
 from model import DeepForkNet
 import os
 
@@ -76,7 +79,7 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     for epoch in range(epochs):
         model.train()
         total_loss = 0
-        for states, policy_targets, value_targets in loader:
+        for _, (states, policy_targets, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=len(loader)):
             states = states.to(device)
             policy_targets = policy_targets.to(device, dtype=torch.long)
             value_targets = value_targets.to(device)
