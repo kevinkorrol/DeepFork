@@ -1,6 +1,3 @@
-import threading
-from abc import ABC
-
 import torch
 from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
@@ -13,8 +10,9 @@ from data_preprocessing import get_project_root
 
 
 class ChessDataset(IterableDataset):
-    def __init__(self, processed_dir: str):
+    def __init__(self, processed_dir: str, samples_per_file: int):
         self.files = sorted(Path(processed_dir).glob("*.pt"))
+        self.samples_per_file = samples_per_file
         print("Found files:", self.files)
 
     def _yield_file(self, path):
@@ -25,6 +23,9 @@ class ChessDataset(IterableDataset):
                 torch.tensor(sample["action"], dtype=torch.long),
                 torch.tensor(sample["result"], dtype=torch.float32),
             )
+
+    def __len__(self):
+        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -53,7 +54,7 @@ class AZLoss(nn.Module):
 
 
 def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300, n_samples=None):
-    dataset = ChessDataset(processed_dir)
+    dataset = ChessDataset(processed_dir, samples_per_file)
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
