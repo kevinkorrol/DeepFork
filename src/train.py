@@ -114,7 +114,11 @@ if __name__ == "__main__":
     epochs = 7
     n_samples = None
     batch_size = 32
-    train_model(model, processed_dir, epochs, batch_size, device='cpu', n_samples=n_samples)
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = 'cpu'
+    train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
     save_path = get_project_root() / "models" / "checkpoints"
     model_name = f"{epochs}epochs_{"all" if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)

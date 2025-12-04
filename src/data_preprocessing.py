@@ -11,6 +11,8 @@ import chess
 import chess.pgn
 import torch
 from tqdm import tqdm
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 from utils.chess_utils import game_to_tensors
 
 def get_project_root() -> Path:
