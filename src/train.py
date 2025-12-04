@@ -31,7 +31,7 @@ class ChessDataset(Dataset):
         print(f"Loaded {len(self.samples)} samples from {len(self.files)} files")
 
     def __len__(self):
-        return self.total_samples
+        return len(self.samples)
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
