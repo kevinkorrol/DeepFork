@@ -70,7 +70,7 @@ def save_all_games_in_files(samples_per_file=300, n_games=None, history_count=8)
         buffer.extend(samples)
 
         if len(buffer) >= samples_per_file:
-            torch.save(buffer[:samples_per_file], processed_dir / f"games_{file_idx:03d}.pt")
+            torch.save(buffer[:samples_per_file], processed_dir / f"games_{file_idx:05d}.pt")
             file_idx += 1
             buffer = buffer[samples_per_file:]
 
