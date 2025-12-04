@@ -10,7 +10,7 @@ import chess.pgn
 import numpy as np
 from collections.abc import Hashable
 
-def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> list:
+def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
     """
     :param game: Game object to be converted
     :param history_count: Number of states to include in history
@@ -32,7 +32,7 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int = 8) -> list:
 
     for move in game.mainline_moves():
         current_board.push(move)
-        state = state_to_tensor(state_history, current_board, seen_states)
+        state = state_to_tensor(state_history, current_board, seen_states, history_count)
 
         sample = {
             "state": state.astype(np.float32),  # shape (119,8,8)
@@ -49,7 +49,7 @@ def state_to_tensor(
         state_history: np.ndarray,
         new_board: chess.Board,
         seen_states: dict,
-        history_count: int=8
+        history_count: int
 ) -> np.ndarray:
     """
     Update state_history and return a (h*14 + 7)x8x8 tensor of board state where
