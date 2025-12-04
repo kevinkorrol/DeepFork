@@ -21,7 +21,7 @@ def get_project_root() -> Path:
     """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n, start=0, samples_per_file=300, origin_dir="data/raw") -> Generator:
+def load_n_processed_games(n, start, origin_dir="data/raw") -> Generator:
     """
     Stream up to n chess games from PGN files under data/raw.
     :param n: Maximum number of games to yield (None for all)
@@ -33,10 +33,7 @@ def load_n_processed_games(n, start=0, samples_per_file=300, origin_dir="data/ra
     files = list(raw_dir.glob("*.pgn"))
     count = 0
 
-    for i, path in enumerate(files, 1):
-        if i * samples_per_file < start:
-            for _ in range(samples_per_file):
-                yield None
+    for path in files:
 
         with open(path, encoding="utf-8") as pgn:
             while True:
@@ -47,13 +44,16 @@ def load_n_processed_games(n, start=0, samples_per_file=300, origin_dir="data/ra
                     continue
                 if game is None:
                     break
-                yield game
                 count += 1
+                if count > start:
+                    yield game
+                else:
+                    yield None
                 if n is not None and count >= n:
                     return
 
 
-def save_all_games_in_files(samples_per_file=300, start=0, n_games=None, history_count=8) -> None:
+def save_all_games_in_files(samples_per_file, start, n_games, history_count) -> None:
     """
     Save processed games into chunked .pt files under data/processed.
 
@@ -67,7 +67,7 @@ def save_all_games_in_files(samples_per_file=300, start=0, n_games=None, history
     buffer = []
     file_idx = 0
 
-    for i, game in tqdm(enumerate(load_n_processed_games(n_games, start=start, samples_per_file=samples_per_file)),
+    for i, game in tqdm(enumerate(load_n_processed_games(n_games, start=start)),
                      desc="Processing games",
                      unit="games",
                      total=n_games + start):
@@ -94,7 +94,7 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
     count = 0
 
     with open(dataset_path, 'w') as dest:
-        for game in tqdm(load_n_processed_games(None, origin_dir="data/temp"),
+        for game in tqdm(load_n_processed_games(None, origin_dir="data/temp", start=0),
                          desc="Filtering Games",
                          unit="games",
                          bar_format=""):
