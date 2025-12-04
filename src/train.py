@@ -9,13 +9,13 @@ from tqdm import tqdm
 from model import DeepForkNet
 import os
 
-from src.data_preprocessing import get_project_root
+from data_preprocessing import get_project_root
 
 file_cache = {}
 current_file_path = None
 cache_lock = threading.Lock()
 
-MAX_CACHE_FILES = 5
+MAX_CACHE_FILES = 2000
 
 class ChessDataset(Dataset):
     def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
@@ -80,8 +80,10 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=os.cpu_count() // 2 or 1,
-        pin_memory=device == 'cuda'
+        num_workers=os.cpu_count(),
+        pin_memory=device == 'cuda',
+        persistent_workers=True,
+        prefetch_factor=4
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -113,7 +115,7 @@ if __name__ == "__main__":
     processed_dir = get_project_root() / "data" / "processed"
     epochs = 7
     n_samples = None
-    batch_size = 32
+    batch_size = 512
     if torch.cuda.is_available():
         device = "cuda"
     else:
