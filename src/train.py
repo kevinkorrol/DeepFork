@@ -53,15 +53,18 @@ class ChessDataset(IterableDataset):
 
 
 class AZLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, value_weight=1.0, policy_weight=1.0):
         super().__init__()
-        self.value_loss = nn.MSELoss()
-        self.policy_loss = nn.NLLLoss()
+        self.value_loss_fn = nn.MSELoss()
+        self.policy_loss_fn = nn.CrossEntropyLoss()
+        self.value_weight = value_weight
+        self.policy_weight = policy_weight
 
-    def forward(self, policy_pred, value_pred, policy_target_idx, value_target):
-        loss_policy = self.policy_loss(policy_pred, policy_target_idx)
-        loss_value = self.value_loss(value_pred.squeeze(), value_target)
-        return loss_policy + loss_value
+    def forward(self, policy_logits, value_pred, policy_target_idx, value_target):
+        loss_policy = self.policy_loss_fn(policy_logits, policy_target_idx)
+        loss_value = self.value_loss_fn(value_pred.squeeze(), value_target)
+        total = self.policy_weight * loss_policy + self.value_weight * loss_value
+        return total, loss_policy.detach(), loss_value.detach()
 
 
 def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300, n_samples=None):
@@ -83,24 +86,29 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
 
     for epoch in range(epochs):
         model.train()
-        total_loss = 0
+        total_loss = 0.0
+        total_policy = 0.0
+        total_value = 0.0
+        batches = 0
         for _, (states, action, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=len(loader)):
             states = states.to(device)
             policy_targets = action.to(device)
             value_targets = value_targets.to(device)
 
             optimizer.zero_grad()
-            value_pred, policy_pred = model(states)
-            loss = criterion(policy_pred, value_pred, policy_targets, value_targets)
+            value_pred, policy_logits = model(states)
+            loss, loss_policy_val, loss_value_val = criterion(policy_logits, value_pred, policy_targets, value_targets)
             loss.backward()
             optimizer.step()
-            current_loss = loss.item()
-            total_loss += current_loss
 
-        avg_loss = total_loss/len(loader)
-        loss_history.append(avg_loss)
+            total_loss += loss.item()
+            total_policy += loss_policy_val.item()
+            total_value += loss_value_val.item()
+            batches += 1
 
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+        loss_history.append(total_loss/batches)
+
+        print(f"Epoch {epoch+1}/{epochs}, Avg loss: {total_loss/batches:.4f}, policy: {total_policy/batches:.4f}, value: {total_value/batches:.4f}")
 
     return loss_history
 

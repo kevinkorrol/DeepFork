@@ -196,6 +196,8 @@ def MCTS(
         state_tensor = torch.from_numpy(state_tensor).float().to(device)
         # Model prediction
         value_est, prior_ests = model(state_tensor)
+        if leaf == root:
+            print(value_est.item())
 
         # Convert torch tensors into numpy shapes
         prior_ests = prior_ests.detach().to(device).numpy().reshape(-1)
