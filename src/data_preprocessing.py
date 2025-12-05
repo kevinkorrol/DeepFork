@@ -49,7 +49,7 @@ def load_n_processed_games(n, start, origin_dir="data/raw") -> Generator:
                     yield game
                 else:
                     yield None
-                if n is not None and count >= n:
+                if n is not None and count >= n + start:
                     return
 
 
@@ -114,4 +114,4 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
 
 
 if __name__ == "__main__":
-    save_all_games_in_files(samples_per_file=300, start=50000, n_games=50000, history_count=6)
+    save_all_games_in_files(samples_per_file=300, start=100_000, n_games=300_000, history_count=6)
