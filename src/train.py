@@ -124,7 +124,11 @@ if __name__ == "__main__":
     plt.ylabel("Loss")
     plt.title("Training Loss Over Epochs")
     plt.grid(True)
-    plt.savefig(os.path.join(root, "/model_data/", "Loss_vs_Epoch_%s.png" % datetime.datetime.today().strftime("%Y-%m-%d")))
+    output_dir = root / "model_data"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"Loss_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
+    plt.savefig(output_dir / filename)
     save_path = root / "models" / "checkpoints"
     model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
