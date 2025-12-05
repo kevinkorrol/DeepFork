@@ -84,13 +84,15 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     criterion = AZLoss()
     model.to(device)
 
+    total_len = n_samples if n_samples is not None else len(loader)
+
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
         total_policy = 0.0
         total_value = 0.0
         batches = 0
-        for _, (states, action, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=len(loader)):
+        for _, (states, action, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=total_len):
             states = states.to(device)
             policy_targets = action.to(device)
             value_targets = value_targets.to(device)
@@ -117,8 +119,8 @@ if __name__ == "__main__":
     model = DeepForkNet(depth=10, filter_count=128, history_size=6)
     root = get_project_root()
     processed_dir = root / "data" / "processed"
-    epochs = 5
-    n_samples = None
+    epochs = 10
+    n_samples = 10_000
     batch_size = 512
     if torch.cuda.is_available():
         device = "cuda"
