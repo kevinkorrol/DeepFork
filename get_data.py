@@ -13,7 +13,7 @@ import time
 
 BASE_URL = "https://www.pgnmentor.com/files.html"
 TARGET_DIR = Path("data/temp")
-NUM_FILES = 5
+NUM_FILES = 249
 
 def resolve_url(link: str) -> str:
     if link.startswith("http"):
