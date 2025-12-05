@@ -26,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash
 
 BOARD_SIZE = 600
-NUM_SIM = 350
+NUM_SIM = 200
 
 
 class ChessUI(App):
@@ -189,6 +189,6 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=16, history_size=6)
-    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/3epochs_allsamples_512batch_size.pt", map_location='cpu'))
+    model = DeepForkNet(depth=10, filter_count=128, history_size=6)
+    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/200epochs_10000samples_512batch_size.pt", map_location='cpu'))
     ChessUI('w', model, history_count=6).run()

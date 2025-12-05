@@ -10,6 +10,9 @@ import chess.pgn
 import numpy as np
 from collections.abc import Hashable
 
+import torch
+
+
 def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
     """
     :param game: Game object to be converted
@@ -188,13 +191,13 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
 
 
 def get_move_distribution(
-        action_distribution: np.ndarray,
+        action_logits: np.ndarray,
         board: chess.Board
 ) -> dict:
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.
-    :param action_distribution: Probability distribution over all possible actions
+    :param action_logits:
     :param board: Current board state
     :return: Probability distribution over all legal moves
     """
@@ -204,10 +207,10 @@ def get_move_distribution(
     move_mask = np.zeros(4672, dtype=bool)
     move_mask[legal_moves_idx] = True
 
-    legal_actions = action_distribution[move_mask]
+    legal_logits = action_logits[move_mask]
 
-    # Normalize it
-    legal_actions /= legal_actions.sum()
+    # Apply softmax
+    legal_actions = np.array(torch.softmax(torch.tensor(legal_logits), dim=0))
 
     return {move: prob for move, prob in zip(legal_moves, legal_actions)}
 
