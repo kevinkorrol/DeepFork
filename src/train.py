@@ -84,7 +84,7 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     criterion = AZLoss()
     model.to(device)
 
-    total_len = n_samples if n_samples is not None else len(loader)
+    total_len = n_samples // 300 if n_samples is not None else len(loader)
 
     for epoch in range(epochs):
         model.train()
