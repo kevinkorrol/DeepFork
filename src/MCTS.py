@@ -152,11 +152,11 @@ class MCTSNode:
         :return: Move associated with the child with highest visit count
         """
         best_move = None
-        best_value = -1
+        best_count = -1
         for move, (child, _) in self.children.items():
-            current_value = child.total_value if child is not None else 0
-            if child is not None and current_value > best_value:
-                best_value = current_value
+            current_count = child.visit_count if child is not None else 0
+            if child is not None and current_count > best_count:
+                best_count = current_count
                 best_move = move
         return best_move
 
@@ -168,8 +168,8 @@ def MCTS(
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
-        c_puct: float = 0.05, # The bigger, the more it relies on net prediction
-        history_count: int = 8
+        history_count: int,
+        c_puct: float = 5, # The bigger, the more it relies on net prediction
 ) -> chess.Move:
     """
     Run a Monte Carlo Tree Search starting from the given game state.
@@ -208,6 +208,7 @@ def MCTS(
         # Backpropagation
         leaf.backprop(value_est)
     #visualize_mcts_graph(root)
-    #for move, (child, est) in root.children.items():
-     #   print(f"Child {child.move} count: {child.visit_count} value: {child.total_value}")
+    for move, (child, est) in root.children.items():
+       print(f"Child {child.move} count: {child.visit_count} value: {child.total_value} est: {child.prior_est}")
+    print("\n\n")
     return root.select_best_child()
