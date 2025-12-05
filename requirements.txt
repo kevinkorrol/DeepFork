@@ -6,3 +6,7 @@ chess
 pandas
 numpy
 torch
+requests
+beautifulsoup4
+selenium
+webdriver-manager
