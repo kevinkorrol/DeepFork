@@ -4,7 +4,6 @@ import torch
 from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
-import matplotlib
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
@@ -16,14 +15,17 @@ from data_preprocessing import get_project_root
 
 
 class ChessDataset(IterableDataset):
-    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int):
-        if n_samples is None:
-            self.files = sorted(Path(processed_dir).glob("*.pt"))
+    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, files=None):
+        if files is not None:
+            self.files = files
         else:
-            self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
+            if n_samples is None:
+                self.files = sorted(Path(processed_dir).glob("*.pt"))
+            else:
+                self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
         self.samples_per_file = samples_per_file
         self.count = 0
-        print(f"Found {len(self.files)} files")
+        print(f"Dataset initialized with {len(self.files)} files")
 
     def _yield_file(self, path):
         data = torch.load(path)
@@ -67,32 +69,55 @@ class AZLoss(nn.Module):
         return total, loss_policy.detach(), loss_value.detach()
 
 
-def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300, n_samples=None):
-    dataset = ChessDataset(processed_dir, samples_per_file, n_samples)
-    loader = DataLoader(
-        dataset,
+def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
+                n_samples=None, val_split=0.2):
+    all_files = sorted(Path(processed_dir).glob("*.pt"))
+    if n_samples is not None:
+        all_files = all_files[:math.ceil(n_samples / samples_per_file)]
+
+    n_val = max(1, int(len(all_files) * val_split))
+    train_files = all_files[:-n_val]
+    val_files = all_files[-n_val:]
+
+    print(f"Train files: {len(train_files)}, Val files: {len(val_files)}")
+
+    train_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=train_files)
+    val_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=val_files)
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=batch_size,
         num_workers=os.cpu_count(),
         pin_memory=device == 'cuda',
         persistent_workers=True,
-        prefetch_factor=4
+        prefetch_factor=4,
     )
 
-    loss_history = []
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        num_workers=os.cpu_count(),
+        pin_memory=device == 'cuda',
+        persistent_workers=True,
+        prefetch_factor=2,
+    )
+
+    train_history = []
+    val_history = []
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = AZLoss()
     model.to(device)
 
-    total_len = n_samples // 300 if n_samples is not None else len(loader)
+    total_len = n_samples // samples_per_file if n_samples is not None else len(train_loader)
 
     for epoch in range(epochs):
         model.train()
-        total_loss = 0.0
+        training_loss = 0.0
         total_policy = 0.0
         total_value = 0.0
         batches = 0
-        for _, (states, action, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=total_len):
+        for _, (states, action, value_targets) in tqdm(enumerate(train_loader, 0), unit="batch", total=total_len):
             states = states.to(device)
             policy_targets = action.to(device)
             value_targets = value_targets.to(device)
@@ -103,16 +128,41 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
+            training_loss += loss.item()
             total_policy += loss_policy_val.item()
             total_value += loss_value_val.item()
             batches += 1
 
-        loss_history.append(total_loss/batches)
+        avg_train_loss = training_loss / batches
+        train_history.append(avg_train_loss)
 
-        print(f"Epoch {epoch+1}/{epochs}, Avg loss: {total_loss/batches:.4f}, policy: {total_policy/batches:.4f}, value: {total_value/batches:.4f}")
+        model.eval()
+        val_loss = 0
+        val_batches = 0
+        with torch.no_grad():
+            for states, action, value_targets in val_loader:
+                states = states.to(device)
+                policy_targets = action.to(device)
+                value_targets = value_targets.to(device)
 
-    return loss_history
+                value_pred, policy_logits = model(states)
+                loss, _, _ = criterion(policy_logits, value_pred, policy_targets, value_targets)
+
+                val_loss += loss.item()
+                val_batches += 1
+
+        avg_val_loss = val_loss / val_batches
+        val_history.append(avg_val_loss)
+
+        print(
+            f"Epoch {epoch + 1}/{epochs} — "
+            f"Train loss: {avg_train_loss:.4f}, "
+            f"policy: {total_policy/batches:.4f}, "
+            f"value: {total_value/batches:.4f}, "
+            f"Val loss: {avg_val_loss:.4f}"
+        )
+
+    return train_history, val_history
 
 
 if __name__ == "__main__":
@@ -126,19 +176,22 @@ if __name__ == "__main__":
         device = "cuda"
     else:
         device = 'cpu'
-    loss_history = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
+    train_loss, val_loss = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
 
     plt.figure(figsize=(8, 5))
-    plt.plot(loss_history, marker='o')
+    plt.plot(train_loss, marker='o', label="Train Loss")
+    plt.plot(val_loss, marker='s', label="Validation Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Training Loss Over Epochs")
+    plt.title("Training + Validation Loss")
     plt.grid(True)
+    plt.legend()
+
     output_dir = root / "model_data"
     output_dir.mkdir(parents=True, exist_ok=True)
-
     filename = f"Loss_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
     plt.savefig(output_dir / filename)
+
     save_path = root / "models" / "checkpoints"
     model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
