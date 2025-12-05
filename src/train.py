@@ -1,8 +1,11 @@
+import datetime
 import math
 import torch
 from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
+import matplotlib
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 
@@ -72,6 +75,8 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         prefetch_factor=4
     )
 
+    loss_history = []
+
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = AZLoss()
     model.to(device)
@@ -79,9 +84,9 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     for epoch in range(epochs):
         model.train()
         total_loss = 0
-        for _, (states, policy_targets, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=len(loader)):
+        for _, (states, action, value_targets) in tqdm(enumerate(loader, 0), unit="batch", total=len(loader)):
             states = states.to(device)
-            policy_targets = policy_targets.to(device, dtype=torch.long)
+            policy_targets = action.to(device)
             value_targets = value_targets.to(device)
 
             optimizer.zero_grad()
@@ -92,12 +97,18 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
             current_loss = loss.item()
             total_loss += current_loss
 
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}")
+        avg_loss = total_loss/len(loader)
+        loss_history.append(avg_loss)
+
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+
+    return loss_history
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=15, history_size=6)
-    processed_dir = get_project_root() / "data" / "processed"
+    model = DeepForkNet(depth=10, filter_count=128, history_size=6)
+    root = get_project_root()
+    processed_dir = root / "data" / "processed"
     epochs = 5
     n_samples = None
     batch_size = 512
@@ -105,7 +116,15 @@ if __name__ == "__main__":
         device = "cuda"
     else:
         device = 'cpu'
-    train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
-    save_path = get_project_root() / "models" / "checkpoints"
+    loss_history = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(loss_history, marker='o')
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training Loss Over Epochs")
+    plt.grid(True)
+    plt.savefig(os.path.join(root, "/model_data/", "Loss_vs_Epoch_%s.png" % datetime.datetime.today().strftime("%Y-%m-%d")))
+    save_path = root / "models" / "checkpoints"
     model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
