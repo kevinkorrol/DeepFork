@@ -277,11 +277,21 @@ def get_action_sample(move: chess.Move, board: chess.Board, epsilon=0.03) -> np.
     legal_moves, move_mask = get_legal_moves_mask(board)
     action_sample = np.zeros(4672, dtype=np.float32)
     move_idx = move_to_action(move)
-    # Label smoothing
-    action_sample[move_mask] = epsilon / (len(legal_moves) - 1)
-    action_sample[move_idx] = 1 - epsilon
+
+    n_legal = len(legal_moves)
+
+    if n_legal == 1:
+        # Only one legal move, no smoothing needed
+        action_sample[move_idx] = 1.0
+    else:
+        # Label smoothing for multiple legal moves
+        action_sample[move_mask] = epsilon / (n_legal - 1)
+        action_sample[move_idx] = 1 - epsilon
+
+    # Optional normalization (safe)
     action_sample /= action_sample.sum()
     return action_sample
+
 
 
 if __name__ == "__main__":
