@@ -195,16 +195,16 @@ def MCTS(
         state_tensor = state_to_tensor(leaf.state_history, leaf.board, leaf.seen_states, history_count)
         state_tensor = torch.from_numpy(state_tensor).float().to(device)
         # Model prediction
-        value_est, prior_ests = model(state_tensor)
+        value_est, prior_logits = model(state_tensor)
         if leaf == root:
             print(value_est.item())
 
         # Convert torch tensors into numpy shapes
-        prior_ests = prior_ests.detach().to(device).numpy().reshape(-1)
+        prior_logits = prior_logits.detach().to(device).numpy().reshape(-1)
         value_est = value_est.item()
 
         if not leaf.is_terminal():
-            move_distr = get_move_distribution(prior_ests, leaf.board)
+            move_distr = get_move_distribution(prior_logits, leaf.board)
             leaf.expand(move_distr)
 
         # Backpropagation

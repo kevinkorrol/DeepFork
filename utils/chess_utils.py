@@ -187,7 +187,8 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
 
 def get_move_distribution(
         action_distribution: np.ndarray,
-        board: chess.Board
+        board: chess.Board,
+        temp: float = 1.0
 ) -> dict:
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
@@ -198,12 +199,14 @@ def get_move_distribution(
     """
 
     legal_moves, move_mask = get_legal_moves_mask(board)
-    legal_actions = action_distribution[move_mask]
+    legal_logits = action_distribution[move_mask]
 
     # Normalize it
-    legal_actions /= legal_actions.sum()
+    legal_logits = (legal_logits - np.max(legal_logits)) / temp
+    exp_logits = np.exp(legal_logits)
+    probs = exp_logits / exp_logits.sum()
 
-    return {move: prob for move, prob in zip(legal_moves, legal_actions)}
+    return {move: prob for move, prob in zip(legal_moves, probs)}
 
 
 def get_legal_moves_mask(board: chess.Board) -> tuple:

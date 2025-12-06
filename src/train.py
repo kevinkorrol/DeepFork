@@ -168,10 +168,10 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=6, filter_count=64, history_size=1)
+    model = DeepForkNet(depth=4, filter_count=64, history_size=1)
     root = get_project_root()
     processed_dir = root / "data" / "processed"
-    epochs = 200
+    epochs = 50
     n_samples = None
     batch_size = 512
     if torch.cuda.is_available():

@@ -78,7 +78,7 @@ class OutBlock(nn.Module):
         v = self.lnV2(v).tanh()
 
         # Policy head
-        p = F.relu(self.bnP(self.convP(data)))
+        p = self.bnP(self.convP(data))
         p = p.view(p.size(0), -1)
         # p = self.lsmP(p)
 
