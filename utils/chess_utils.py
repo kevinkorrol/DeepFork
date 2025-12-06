@@ -4,14 +4,10 @@ Chess-related tensor utilities and encodings for DeepFork.
 Includes helpers to build input tensors from game states, maintain history,
 encode global features, and map between chess moves and the 73x8x8 action space.
 """
-
 import chess
 import chess.pgn
 import numpy as np
 from collections.abc import Hashable
-
-import torch
-
 
 def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
     """
@@ -34,16 +30,19 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
         result = 0
 
     for move in game.mainline_moves():
+        action_sample = get_action_sample(move, current_board)
+        state = state_to_tensor(state_history, current_board, seen_states, history_count)
         current_board.push(move)
         state = state_to_tensor(state_history, current_board, seen_states, history_count)
 
         sample = {
-            "state": state.astype(np.float32),  # shape (119,8,8)
-            "action": move_to_action(move),     # store as action index
-            "result": result                    # 1, 0 or -1
+            "state": state.astype(np.float32),
+            "action": action_sample,
+            "result": result
         }
 
         samples.append(sample)
+        result *= -1 # Switch the sign for the other player
 
     return samples
 
@@ -108,14 +107,10 @@ def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
 
     for i, color in enumerate(colors):
         for j, piece in enumerate(pieces):
-            piece_int = board.pieces(piece, color)
-            for k in range(64):
-                if piece_int == 0:
-                    break
-                if piece_int & 1:
-                    rank = k // 8
-                    piece_placement[i * 6 + j, rank, k - rank * 8] = 1
-                piece_int <<= 1
+            for square in board.pieces(piece, color):
+                rank = square // 8
+                file = square % 8
+                piece_placement[i * 6 + j, rank, file] = 1
     return piece_placement
 
 
@@ -191,28 +186,32 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
 
 
 def get_move_distribution(
-        action_logits: np.ndarray,
+        action_distribution: np.ndarray,
         board: chess.Board
 ) -> dict:
     """
     Gets distribution of moves from action distribution by mapping only legal moves from it.
     The action array represents a 73x8x8 action encoding.
-    :param action_logits:
+    :param action_distribution:
     :param board: Current board state
     :return: Probability distribution over all legal moves
     """
-    legal_moves = list(board.legal_moves)
-    legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
 
-    move_mask = np.zeros(4672, dtype=bool)
-    move_mask[legal_moves_idx] = True
+    legal_moves, move_mask = get_legal_moves_mask(board)
+    legal_actions = action_distribution[move_mask]
 
-    legal_logits = action_logits[move_mask]
-
-    # Apply softmax
-    legal_actions = np.array(torch.softmax(torch.tensor(legal_logits), dim=0))
+    # Normalize it
+    legal_actions /= legal_actions.sum()
 
     return {move: prob for move, prob in zip(legal_moves, legal_actions)}
+
+
+def get_legal_moves_mask(board: chess.Board) -> tuple:
+    legal_moves = list(board.legal_moves)
+    legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
+    move_mask = np.zeros(4672, dtype=bool)
+    move_mask[legal_moves_idx] = True
+    return legal_moves, move_mask
 
 
 def move_to_action(move: chess.Move) -> int:
@@ -273,6 +272,27 @@ def move_to_action(move: chess.Move) -> int:
     # Encode the direction of the move with 3 bits (8 directions)
     direction_encoding = (knight_rank_1 << 2) + (rank_pos_bit << 1) + file_pos_bit + 1
     return square_offset + direction_encoding + 55 # Add 55 to account for queenlike moves
+
+
+def get_action_sample(move: chess.Move, board: chess.Board, epsilon=0.03) -> np.ndarray:
+    legal_moves, move_mask = get_legal_moves_mask(board)
+    action_sample = np.zeros(4672, dtype=np.float32)
+    move_idx = move_to_action(move)
+
+    n_legal = len(legal_moves)
+
+    if n_legal == 1:
+        # Only one legal move, no smoothing needed
+        action_sample[move_idx] = 1.0
+    else:
+        # Label smoothing for multiple legal moves
+        action_sample[move_mask] = epsilon / (n_legal - 1)
+        action_sample[move_idx] = 1 - epsilon
+
+    # Optional normalization (safe)
+    action_sample /= action_sample.sum()
+    return action_sample
+
 
 
 if __name__ == "__main__":

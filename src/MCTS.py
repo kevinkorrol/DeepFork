@@ -168,8 +168,8 @@ def MCTS(
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
-        history_count: int,
-        c_puct: float = 3, # The bigger, the more it relies on net prediction
+        c_puct: float = 2, # The bigger, the more it relies on net prediction
+        history_count: int = 8
 ) -> chess.Move:
     """
     Run a Monte Carlo Tree Search starting from the given game state.
@@ -196,8 +196,8 @@ def MCTS(
         state_tensor = torch.from_numpy(state_tensor).float().to(device)
         # Model prediction
         value_est, prior_ests = model(state_tensor)
-        if root == leaf:
-            print(f"Value estimation: {value_est}")
+        if leaf == root:
+            print(value_est.item())
 
         # Convert torch tensors into numpy shapes
         prior_ests = prior_ests.detach().to(device).numpy().reshape(-1)

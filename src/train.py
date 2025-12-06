@@ -1,120 +1,199 @@
-import threading
+import datetime
+import math
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 
 from model import DeepForkNet
 import os
 
-from src.data_preprocessing import get_project_root
+from data_preprocessing import get_project_root
 
-file_cache = {}
-current_file_path = None
-cache_lock = threading.Lock()
 
-MAX_CACHE_FILES = 5
-
-class ChessDataset(Dataset):
-    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int = None):
-        self.files = sorted(Path(processed_dir).glob("*.pt"))
-        print("Found files:", self.files)
+class ChessDataset(IterableDataset):
+    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, files=None):
+        if files is not None:
+            self.files = files
+        else:
+            if n_samples is None:
+                self.files = sorted(Path(processed_dir).glob("*.pt"))
+            else:
+                self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
         self.samples_per_file = samples_per_file
+        self.count = 0
+        print(f"Dataset initialized with {len(self.files)} files")
 
-        self.total_samples = (len(self.files) - 1) * samples_per_file + len(torch.load(self.files[-1], weights_only=False))
+    def _yield_file(self, path):
+        data = torch.load(path)
+        for sample in data:
+            self.count += 1
+            yield (
+                torch.tensor(sample["state"], dtype=torch.float32),
+                torch.tensor(sample["action"], dtype=torch.float32),
+                torch.tensor(sample["result"], dtype=torch.float32),
+            )
 
     def __len__(self):
-        return self.total_samples
+        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
 
-    def __getitem__(self, idx):
-        file_idx = idx // self.samples_per_file
-        sample_idx_in_file = idx % self.samples_per_file
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
 
-        file_path = str(self.files[file_idx])
+        if worker_info is None:
+            files = self.files
+        else:
+            num_workers = worker_info.num_workers
+            worker_id = worker_info.id
+            files = self.files[worker_id::num_workers]
 
-        global file_cache, current_file_path, cache_lock
-
-        if file_path != current_file_path:
-            # Cache Miss: Load the new file and update the cache
-            with cache_lock: # Only one worker loads the file at a time
-                # Re-check the path after acquiring the lock in case another thread/process
-                # loaded it while we were waiting.
-                if file_path != current_file_path:
-                    data = torch.load(file_path, weights_only=False)
-                    file_cache[file_path] = data
-                    current_file_path = file_path  # Update the path marker
-
-                    if len(file_cache) > MAX_CACHE_FILES:
-                        # Find and remove an arbitrary "old" entry
-                        oldest_file = next(iter(file_cache))
-                        if oldest_file != file_path:  # Don't delete the file we just loaded!
-                            del file_cache[oldest_file]
-
-        data = file_cache[file_path]
-        sample = data[sample_idx_in_file]
-
-        state = torch.tensor(sample["state"], dtype=torch.float32)
-        action = torch.tensor(sample["action"], dtype=torch.long)
-        value_target = torch.tensor(sample["result"], dtype=torch.float32)
-
-        return state, action, value_target
+        for f in files:
+            yield from self._yield_file(f)
 
 
 class AZLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, value_weight=1.0, policy_weight=1.0):
         super().__init__()
-        self.value_loss = nn.MSELoss()
-        self.policy_loss = nn.NLLLoss()
+        self.value_loss_fn = nn.MSELoss()
+        self.policy_loss_fn = nn.KLDivLoss(reduction='batchmean')
+        self.value_weight = value_weight
+        self.policy_weight = policy_weight
 
-    def forward(self, policy_pred, value_pred, policy_target_idx, value_target):
-        loss_policy = self.policy_loss(policy_pred, policy_target_idx)
-        loss_value = self.value_loss(value_pred.squeeze(), value_target)
-        return loss_policy + loss_value
+    def forward(self, policy_logits, value_pred, policy_target, value_target):
+        log_probs = torch.nn.functional.log_softmax(policy_logits, dim=1)
+        loss_policy = self.policy_loss_fn(log_probs, policy_target)
+        loss_value = self.value_loss_fn(value_pred.squeeze(), value_target)
+        total = self.policy_weight * loss_policy + self.value_weight * loss_value
+        return total, loss_policy.detach(), loss_value.detach()
 
 
-def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300, n_samples=None):
-    dataset = ChessDataset(processed_dir, samples_per_file, n_samples)
-    loader = DataLoader(
-        dataset,
+
+def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
+                n_samples=None, val_split=0.2):
+    all_files = sorted(Path(processed_dir).glob("*.pt"))
+    if n_samples is not None:
+        all_files = all_files[:math.ceil(n_samples / samples_per_file)]
+
+    n_val = max(1, int(len(all_files) * val_split))
+    train_files = all_files[:-n_val]
+    val_files = all_files[-n_val:]
+
+    print(f"Train files: {len(train_files)}, Val files: {len(val_files)}")
+
+    train_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=train_files)
+    val_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=val_files)
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=batch_size,
-        shuffle=True,
-        num_workers=os.cpu_count() // 2 or 1,
-        pin_memory=device == 'cuda'
+        num_workers=os.cpu_count(),
+        pin_memory=device == 'cuda',
+        persistent_workers=True,
+        prefetch_factor=4,
     )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        num_workers=os.cpu_count(),
+        pin_memory=device == 'cuda',
+        persistent_workers=True,
+        prefetch_factor=2,
+    )
+
+    train_history = []
+    val_history = []
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = AZLoss()
     model.to(device)
 
+    total_len = n_samples // samples_per_file if n_samples is not None else len(train_loader)
+
     for epoch in range(epochs):
         model.train()
-        total_loss = 0
-        for states, policy_targets, value_targets in loader:
+        training_loss = 0.0
+        total_policy = 0.0
+        total_value = 0.0
+        batches = 0
+        for _, (states, actions, value_targets) in tqdm(enumerate(train_loader, 0), unit="batch", total=total_len):
             states = states.to(device)
-            policy_targets = policy_targets.to(device, dtype=torch.long)
+            policy_targets = actions.to(device)
             value_targets = value_targets.to(device)
 
             optimizer.zero_grad()
-            value_pred, policy_pred = model(states)
-            loss = criterion(policy_pred, value_pred, policy_targets, value_targets)
+            value_pred, policy_logits = model(states)
+            loss, loss_policy_val, loss_value_val = criterion(policy_logits, value_pred, policy_targets, value_targets)
             loss.backward()
             optimizer.step()
-            current_loss = loss.item()
-            total_loss += current_loss
 
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}")
+            training_loss += loss.item()
+            total_policy += loss_policy_val.item()
+            total_value += loss_value_val.item()
+            batches += 1
 
+        avg_train_loss = training_loss / batches
+        train_history.append(avg_train_loss)
+
+        model.eval()
+        val_loss = 0
+        val_batches = 0
+        with torch.no_grad():
+            for states, actions, value_targets in val_loader:
+                states = states.to(device)
+                policy_targets = actions.to(device)
+                value_targets = value_targets.to(device)
+
+                value_pred, policy_logits = model(states)
+                loss, _, _ = criterion(policy_logits, value_pred, policy_targets, value_targets)
+
+                val_loss += loss.item()
+                val_batches += 1
+
+        avg_val_loss = val_loss / val_batches
+        val_history.append(avg_val_loss)
+
+        print(
+            f"Epoch {epoch + 1}/{epochs} — "
+            f"Train loss: {avg_train_loss:.4f}, "
+            f"policy: {total_policy/batches:.4f}, "
+            f"value: {total_value/batches:.4f}, "
+            f"Val loss: {avg_val_loss:.4f}"
+        )
+
+    return train_history, val_history
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=10)
-    processed_dir = get_project_root() / "data" / "processed"
-    epochs = 7
+    model = DeepForkNet(depth=6, filter_count=64, history_size=1)
+    root = get_project_root()
+    processed_dir = root / "data" / "processed"
+    epochs = 200
     n_samples = None
-    batch_size = 32
-    train_model(model, processed_dir, epochs, batch_size, device='cpu', n_samples=n_samples)
-    save_path = get_project_root() / "models" / "checkpoints"
-    model_name = f"{epochs}epochs_{"all" if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
+    batch_size = 512
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = 'cpu'
+    train_loss, val_loss = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_loss, marker='o', label="Train Loss")
+    plt.plot(val_loss, marker='s', label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training + Validation Loss")
+    plt.grid(True)
+    plt.legend()
+
+    output_dir = root / "model_data"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"Loss_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
+    plt.savefig(output_dir / filename)
+
+    save_path = root / "models" / "checkpoints"
+    model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
