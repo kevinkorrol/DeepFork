@@ -102,7 +102,7 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
                 white_elo = game.headers.get('WhiteElo')
                 black_elo = game.headers.get("BlackElo")
                 if white_elo.isnumeric() and int(white_elo) > min_elo \
-                        and white_elo.isnumeric() \
+                        and black_elo.isnumeric() \
                         and int(black_elo) > min_elo \
                         and game.end().ply() > min_half_moves:
                     count += 1
@@ -114,4 +114,4 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
 
 
 if __name__ == "__main__":
-    save_all_games_in_files(samples_per_file=300, start=100_000, n_games=300_000, history_count=6)
+    save_all_games_in_files(samples_per_file=300, start=0, n_games=150_000, history_count=1)
