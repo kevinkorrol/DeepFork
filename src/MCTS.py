@@ -169,7 +169,7 @@ def MCTS(
         seen_states: dict,
         state_history: np.ndarray,
         history_count: int,
-        c_puct: float = 1, # The bigger, the more it relies on net prediction
+        c_puct: float = 3, # The bigger, the more it relies on net prediction
 ) -> chess.Move:
     """
     Run a Monte Carlo Tree Search starting from the given game state.
@@ -209,7 +209,7 @@ def MCTS(
 
         # Backpropagation
         leaf.backprop(value_est)
-    visualize_mcts_graph(root)
+    #visualize_mcts_graph(root)
     for move, (child, est) in root.children.items():
         if child is not None and child.visit_count is not None and child.move is not None and child.total_value is not None:
             print(f"Child {child.move} count: {child.visit_count} value: {child.total_value} est: {child.prior_est}")
