@@ -33,7 +33,7 @@ class ChessDataset(IterableDataset):
             self.count += 1
             yield (
                 torch.tensor(sample["state"], dtype=torch.float32),
-                torch.tensor(sample["action"], dtype=torch.long),
+                torch.tensor(sample["action"], dtype=torch.float32),
                 torch.tensor(sample["result"], dtype=torch.float32),
             )
 
@@ -58,15 +58,17 @@ class AZLoss(nn.Module):
     def __init__(self, value_weight=1.0, policy_weight=1.0):
         super().__init__()
         self.value_loss_fn = nn.MSELoss()
-        self.policy_loss_fn = nn.CrossEntropyLoss()
+        self.policy_loss_fn = nn.KLDivLoss(reduction='batchmean')
         self.value_weight = value_weight
         self.policy_weight = policy_weight
 
-    def forward(self, policy_logits, value_pred, policy_target_idx, value_target):
-        loss_policy = self.policy_loss_fn(policy_logits, policy_target_idx)
+    def forward(self, policy_logits, value_pred, policy_target, value_target):
+        log_probs = torch.nn.functional.log_softmax(policy_logits, dim=1)
+        loss_policy = self.policy_loss_fn(log_probs, policy_target)
         loss_value = self.value_loss_fn(value_pred.squeeze(), value_target)
         total = self.policy_weight * loss_policy + self.value_weight * loss_value
         return total, loss_policy.detach(), loss_value.detach()
+
 
 
 def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
@@ -117,9 +119,9 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         total_policy = 0.0
         total_value = 0.0
         batches = 0
-        for _, (states, action, value_targets) in tqdm(enumerate(train_loader, 0), unit="batch", total=total_len):
+        for _, (states, actions, value_targets) in tqdm(enumerate(train_loader, 0), unit="batch", total=total_len):
             states = states.to(device)
-            policy_targets = action.to(device)
+            policy_targets = actions.to(device)
             value_targets = value_targets.to(device)
 
             optimizer.zero_grad()
@@ -140,9 +142,9 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         val_loss = 0
         val_batches = 0
         with torch.no_grad():
-            for states, action, value_targets in val_loader:
+            for states, actions, value_targets in val_loader:
                 states = states.to(device)
-                policy_targets = action.to(device)
+                policy_targets = actions.to(device)
                 value_targets = value_targets.to(device)
 
                 value_pred, policy_logits = model(states)
