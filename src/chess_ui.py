@@ -189,6 +189,6 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=6, filter_count=64, history_size=1)
-    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/60epochs_allsamples_512batch_size.pt", map_location='cpu'))
+    model = DeepForkNet(depth=4, filter_count=64, history_size=1)
+    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/50epochs_allsamples_512batch_size.pt", map_location='cpu'))
     ChessUI('w', model, history_count=1).run()

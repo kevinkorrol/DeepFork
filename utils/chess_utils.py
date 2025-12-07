@@ -13,36 +13,24 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
     """
     :param game: Game object to be converted
     :param history_count: Number of states to include in history
-    :return: A list of sample dicts: { state, move, result }
+    :return: A list of sample dicts: { state, move }
     """
     current_board = game.board()
     state_history = np.zeros((history_count, 14, 8, 8), dtype=np.float32)
     seen_states = {get_state_hash(current_board): 1}
     samples = []
 
-    # result: 1 = white, 0 = draw, -1 = black
-    result_str = game.headers.get("Result", "*")
-    if result_str == "1-0":
-        result = 1
-    elif result_str == "0-1":
-        result = -1
-    else:
-        result = 0
-
     for move in game.mainline_moves():
-        action_sample = get_action_sample(move, current_board)
+        action = move_to_action(move)
         state = state_to_tensor(state_history, current_board, seen_states, history_count)
         current_board.push(move)
-        state = state_to_tensor(state_history, current_board, seen_states, history_count)
 
         sample = {
             "state": state.astype(np.float32),
-            "action": action_sample,
-            "result": result
+            "action": action
         }
 
         samples.append(sample)
-        result *= -1 # Switch the sign for the other player
 
     return samples
 
@@ -67,8 +55,9 @@ def state_to_tensor(
 
     update_history(state_history, new_board, history_count, seen_states)
     global_planes = get_global_planes(new_board)
+    legal_moves_plane = get_legal_moves_plane(new_board)
 
-    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes], axis=0)
+    return np.concatenate([np.stack(state_history).reshape(-1, 8, 8), global_planes, legal_moves_plane], axis=0)
 
 
 def update_history(
@@ -217,6 +206,17 @@ def get_legal_moves_mask(board: chess.Board) -> tuple:
     return legal_moves, move_mask
 
 
+def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
+    plane = np.zeros((8, 8), dtype=np.float32)
+    for move in board.legal_moves:
+        to_square = move.to_square
+        rank = to_square // 8
+        file = to_square % 8
+        plane[rank, file] = 1.0
+
+    return plane
+
+
 def move_to_action(move: chess.Move) -> int:
     """
     Converts the given move to an index of the 4672-dimensional action vector.
@@ -275,27 +275,6 @@ def move_to_action(move: chess.Move) -> int:
     # Encode the direction of the move with 3 bits (8 directions)
     direction_encoding = (knight_rank_1 << 2) + (rank_pos_bit << 1) + file_pos_bit + 1
     return square_offset + direction_encoding + 55 # Add 55 to account for queenlike moves
-
-
-def get_action_sample(move: chess.Move, board: chess.Board, epsilon=0.03) -> np.ndarray:
-    legal_moves, move_mask = get_legal_moves_mask(board)
-    action_sample = np.zeros(4672, dtype=np.float32)
-    move_idx = move_to_action(move)
-
-    n_legal = len(legal_moves)
-
-    if n_legal == 1:
-        # Only one legal move, no smoothing needed
-        action_sample[move_idx] = 1.0
-    else:
-        # Label smoothing for multiple legal moves
-        action_sample[move_mask] = epsilon / (n_legal - 1)
-        action_sample[move_idx] = 1 - epsilon
-
-    # Optional normalization (safe)
-    action_sample /= action_sample.sum()
-    return action_sample
-
 
 
 if __name__ == "__main__":
