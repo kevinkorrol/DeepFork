@@ -207,12 +207,12 @@ def get_legal_moves_mask(board: chess.Board) -> tuple:
 
 
 def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
-    plane = np.zeros((8, 8), dtype=np.float32)
+    plane = np.zeros((1, 8, 8), dtype=np.float32)
     for move in board.legal_moves:
         to_square = move.to_square
         rank = to_square // 8
         file = to_square % 8
-        plane[rank, file] = 1.0
+        plane[0, rank, file] = 1.0
 
     return plane
 
