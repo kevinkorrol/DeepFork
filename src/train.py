@@ -111,60 +111,64 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     for epoch in range(epochs):
         model.train()
         training_loss = 0.0
-        samples = 0
+        train_batches = 0
+        train_samples = 0
         train_hits = 0
         for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - val_split)):
             state = state.to(device)
-            policy_target = action.to(device)
+            policy_targets = action.to(device)
 
             optimizer.zero_grad()
             policy_probs = model(state)
-            loss = criterion(policy_probs, policy_target)
+            loss = criterion(policy_probs, policy_targets)
             loss.backward()
             optimizer.step()
 
             training_loss += loss.item()
-            samples += 1
+            train_batches += 1
+            train_samples += policy_targets.size(0)
 
             predicted_action = torch.argmax(policy_probs, dim=1)
-            correct_predictions = (predicted_action == policy_target).sum().item()
+            correct_predictions = (predicted_action == policy_targets).sum().item()
             train_hits += correct_predictions
 
-        avg_train_loss = training_loss / samples
-        avg_train_accuracy = train_hits / samples
+        avg_train_loss = training_loss / train_batches
+        avg_train_accuracy = train_hits / train_samples
         train_history.append(avg_train_loss)
         train_accuracy_history.append(avg_train_accuracy)
 
         model.eval()
         val_loss = 0
+        val_batches = 0
         val_samples = 0
         val_hits = 0
         with torch.no_grad():
             for state, action in tqdm(val_loader, unit="batch", total=total_len*val_split):
                 state = state.to(device)
-                policy_target = action.to(device)
+                policy_targets = action.to(device)
 
                 policy_probs = model(state)
-                loss = criterion(policy_probs, policy_target)
+                loss = criterion(policy_probs, policy_targets)
 
                 val_loss += loss.item()
-                val_samples += 1
+                val_batches += 1
+                val_samples += policy_targets.size(0)
 
                 predicted_action = torch.argmax(policy_probs, dim=1)
-                correct_predictions = (predicted_action == policy_target).sum().item()
+                correct_predictions = (predicted_action == policy_targets).sum().item()
                 val_hits += correct_predictions
 
-        avg_val_loss = val_loss / val_samples
+        avg_val_loss = val_loss / val_batches
         avg_val_accuracy = val_hits / val_samples
         val_accuracy_history.append(avg_val_accuracy)
         val_history.append(avg_val_loss)
 
         print(
-            f"Epoch {epoch + 1}/{epochs}\n"
-            f"Train loss: {avg_train_loss:.4f}\n"
-            f"Val loss: {avg_val_loss:.4f}\n"
-            f"Train accuracy: {avg_train_accuracy:.4f}\n"
-            f"Val accuracy: {avg_val_accuracy:.4f}\n\n"
+            f"Epoch {epoch + 1}/{epochs} "
+            f"Train loss: {avg_train_loss:.4f} "
+            f"Val loss: {avg_val_loss:.4f} "
+            f"Train accuracy: {avg_train_accuracy:.4f} "
+            f"Val accuracy: {avg_val_accuracy:.4f}"
         )
 
     return train_history, val_history, train_accuracy_history, val_accuracy_history
