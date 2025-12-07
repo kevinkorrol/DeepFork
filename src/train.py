@@ -33,7 +33,7 @@ class ChessDataset(IterableDataset):
             self.count += 1
             yield (
                 torch.tensor(sample["state"], dtype=torch.float32),
-                torch.tensor(sample["action"], dtype=torch.int)
+                torch.tensor(sample["action"], dtype=torch.long)
             )
 
     def __len__(self):
@@ -111,7 +111,7 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     for epoch in range(epochs):
         model.train()
         training_loss = 0.0
-        batches = 0
+        samples = 0
         train_hits = 0
         for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - val_split)):
             state = state.to(device)
@@ -124,20 +124,20 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
             optimizer.step()
 
             training_loss += loss.item()
-            batches += 1
+            samples += 1
 
             predicted_action = torch.argmax(policy_probs, dim=1)
             correct_predictions = (predicted_action == policy_target).sum().item()
             train_hits += correct_predictions
 
-        avg_train_loss = training_loss / batches
-        avg_train_accuracy = train_hits / batches
+        avg_train_loss = training_loss / samples
+        avg_train_accuracy = train_hits / samples
         train_history.append(avg_train_loss)
         train_accuracy_history.append(avg_train_accuracy)
 
         model.eval()
         val_loss = 0
-        val_batches = 0
+        val_samples = 0
         val_hits = 0
         with torch.no_grad():
             for state, action in tqdm(val_loader, unit="batch", total=total_len*val_split):
@@ -148,14 +148,14 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
                 loss = criterion(policy_probs, policy_target)
 
                 val_loss += loss.item()
-                val_batches += 1
+                val_samples += 1
 
                 predicted_action = torch.argmax(policy_probs, dim=1)
                 correct_predictions = (predicted_action == policy_target).sum().item()
                 val_hits += correct_predictions
 
-        avg_val_loss = val_loss / val_batches
-        avg_val_accuracy = val_hits / val_batches
+        avg_val_loss = val_loss / val_samples
+        avg_val_accuracy = val_hits / val_samples
         val_accuracy_history.append(avg_val_accuracy)
         val_history.append(avg_val_loss)
 
