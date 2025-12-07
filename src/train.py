@@ -115,11 +115,11 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         train_hits = 0
         for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - val_split)):
             state = state.to(device)
-            policy_targets = action.to(device)
+            policy_target = action.to(device)
 
             optimizer.zero_grad()
             policy_probs = model(state)
-            loss = criterion(policy_probs, policy_targets)
+            loss = criterion(policy_probs, policy_target)
             loss.backward()
             optimizer.step()
 
