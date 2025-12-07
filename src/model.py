@@ -16,7 +16,7 @@ class ConvBlock(nn.Module):
     def __init__(self, history_size=8, filter_count=256):
         super(ConvBlock, self).__init__()
         self.history_size = history_size
-        self.conv = nn.Conv2d(14 * history_size + 7, filter_count, 3, padding=1)
+        self.conv = nn.Conv2d(14 * history_size + 8, filter_count, 3, padding=1)
         self.bn = nn.BatchNorm2d(filter_count)
 
     def forward(self, data):
@@ -24,7 +24,7 @@ class ConvBlock(nn.Module):
         :param data: Input tensor of shape (batch, (14*h + 7)*8*8) or already (batch, channels, 8, 8)
         :return: Feature map after a conv + BN + ReLU
         """
-        data = data.view(-1, 14 * self.history_size + 7, 8, 8)  # batch-size, channels, board_w, board_h
+        data = data.view(-1, 14 * self.history_size + 8, 8, 8)  # batch-size, channels, board_w, board_h
         return F.relu(self.bn(self.conv(data)))
 
 
