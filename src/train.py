@@ -33,8 +33,7 @@ class ChessDataset(IterableDataset):
             self.count += 1
             yield (
                 torch.tensor(sample["state"], dtype=torch.float32),
-                torch.tensor(sample["action"], dtype=torch.float32),
-                torch.tensor(sample["result"], dtype=torch.float32),
+                torch.tensor(sample["action"], dtype=torch.int)
             )
 
     def __len__(self):
@@ -54,14 +53,13 @@ class ChessDataset(IterableDataset):
             yield from self._yield_file(f)
 
 
-class AZLoss(nn.Module):
+class PolicyLoss(nn.Module):
     def __init__(self):
         super().__init__()
-        self.policy_loss_fn = nn.KLDivLoss(reduction='batchmean')
+        self.policy_loss_fn = nn.CrossEntropyLoss()
 
-    def forward(self, policy_logits, policy_target):
-        log_probs = torch.nn.functional.log_softmax(policy_logits, dim=1)
-        loss = self.policy_loss_fn(log_probs, policy_target)
+    def forward(self, policy_probs, policy_target):
+        loss = self.policy_loss_fn(policy_probs, policy_target)
         return loss
 
 
@@ -100,86 +98,122 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
     )
 
     train_history = []
+    train_accuracy_history = []
     val_history = []
+    val_accuracy_history = []
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = AZLoss()
+    criterion = PolicyLoss()
     model.to(device)
 
-    total_len = n_samples // samples_per_file if n_samples is not None else len(train_loader)
+    total_len = n_samples // batch_size if n_samples is not None else len(train_loader) // batch_size
 
     for epoch in range(epochs):
         model.train()
         training_loss = 0.0
         batches = 0
-        for _, (states, actions) in tqdm(enumerate(train_loader, 0), unit="batch", total=total_len):
-            states = states.to(device)
-            policy_targets = actions.to(device)
+        train_hits = 0
+        for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - val_split)):
+            state = state.to(device)
+            policy_targets = action.to(device)
 
             optimizer.zero_grad()
-            policy_logits = model(states)
-            loss, loss_policy_val, loss_value_val = criterion(policy_logits, policy_targets)
+            policy_probs = model(state)
+            loss = criterion(policy_probs, policy_targets)
             loss.backward()
             optimizer.step()
 
             training_loss += loss.item()
             batches += 1
 
+            predicted_action = torch.argmax(policy_probs, dim=1)
+            correct_predictions = (predicted_action == policy_target).sum().item()
+            train_hits += correct_predictions
+
         avg_train_loss = training_loss / batches
+        avg_train_accuracy = train_hits / batches
         train_history.append(avg_train_loss)
+        train_accuracy_history.append(avg_train_accuracy)
 
         model.eval()
         val_loss = 0
         val_batches = 0
+        val_hits = 0
         with torch.no_grad():
-            for states, actions in val_loader:
-                states = states.to(device)
-                policy_targets = actions.to(device)
+            for state, action in tqdm(val_loader, unit="batch", total=total_len*val_split):
+                state = state.to(device)
+                policy_target = action.to(device)
 
-                policy_logits = model(states)
-                loss, _, _ = criterion(policy_logits, policy_targets)
+                policy_probs = model(state)
+                loss = criterion(policy_probs, policy_target)
 
                 val_loss += loss.item()
                 val_batches += 1
 
+                predicted_action = torch.argmax(policy_probs, dim=1)
+                correct_predictions = (predicted_action == policy_target).sum().item()
+                val_hits += correct_predictions
+
         avg_val_loss = val_loss / val_batches
+        avg_val_accuracy = val_hits / val_batches
+        val_accuracy_history.append(avg_val_accuracy)
         val_history.append(avg_val_loss)
 
         print(
-            f"Epoch {epoch + 1}/{epochs} — "
-            f"Train loss: {avg_train_loss:.4f}, "
-            f"Val loss: {avg_val_loss:.4f}"
+            f"Epoch {epoch + 1}/{epochs}\n"
+            f"Train loss: {avg_train_loss:.4f}\n"
+            f"Val loss: {avg_val_loss:.4f}\n"
+            f"Train accuracy: {avg_train_accuracy:.4f}\n"
+            f"Val accuracy: {avg_val_accuracy:.4f}\n\n"
         )
 
-    return train_history, val_history
+    return train_history, val_history, train_accuracy_history, val_accuracy_history
 
 
 if __name__ == "__main__":
+    torch.manual_seed(283)
     model = DeepForkNet(depth=4, filter_count=64, history_size=1)
     root = get_project_root()
     processed_dir = root / "data" / "processed"
-    epochs = 50
-    n_samples = None
+
+    epochs = 20
+    n_samples = 100_000
     batch_size = 512
+
     if torch.cuda.is_available():
         device = "cuda"
     else:
         device = 'cpu'
-    train_loss, val_loss = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
+    train_loss_history, val_loss_history, train_accuracy_history, val_accuracy_history = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(train_loss, marker='o', label="Train Loss")
-    plt.plot(val_loss, marker='s', label="Validation Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Training + Validation Loss")
-    plt.grid(True)
-    plt.legend()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+    ax1.plot(train_loss_history, marker='o', label="Train Loss")
+    ax1.plot(val_loss_history, marker='s', label="Validation Loss")
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss")
+    ax1.set_title("Training and Validation Loss Over Epochs")
+    ax1.grid(True)
+    ax1.legend()
+
+    ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
+    ax2.plot(val_accuracy_history, marker='s', label="Validation Accuracy")
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylabel("Accuracy")
+    ax2.set_title("Training and Validation Accuracy Over Epochs")
+    ax2.grid(True)
+    ax2.legend()
+
+    plt.tight_layout()
 
     output_dir = root / "model_data"
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"Loss_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
+    filename = f"Metrics_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
     plt.savefig(output_dir / filename)
+
+    # Save the accuracy plot
+    filename_acc = f"Accuracy_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
+    plt.savefig(output_dir / filename_acc)
 
     save_path = root / "models" / "checkpoints"
     model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
