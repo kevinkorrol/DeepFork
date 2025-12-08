@@ -6,14 +6,21 @@ import torch.nn as nn
 from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from triton.profiler.context import depth
 
 from model import DeepForkNet
 import os
+
 from data_preprocessing import get_project_root
 
 
 class ChessDataset(IterableDataset):
+    """Iterable dataset over saved tensor shards produced by preprocessing.
+
+    :param processed_dir: Directory containing .pt shard files
+    :param samples_per_file: Number of samples in each shard file
+    :param n_samples: Optional cap on total samples (used to limit files)
+    :param files: Optional explicit list of files to iterate over
+    """
     def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, files=None):
         if files is not None:
             self.files = files
@@ -27,6 +34,11 @@ class ChessDataset(IterableDataset):
         print(f"Dataset initialized with {len(self.files)} files")
 
     def _yield_file(self, path):
+        """Yield samples (state, action) from a single shard file.
+
+        :param path: Path to a .pt file saved during preprocessing
+        :yield: Tuples (state: FloatTensor, action: LongTensor)
+        """
         data = torch.load(path)
         for sample in data:
             self.count += 1
@@ -36,9 +48,11 @@ class ChessDataset(IterableDataset):
             )
 
     def __len__(self):
+        """Approximate dataset length across all shard files."""
         return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
 
     def __iter__(self):
+        """Iterate over samples, sharded across DataLoader workers if any."""
         worker_info = torch.utils.data.get_worker_info()
 
         if worker_info is None:
@@ -53,11 +67,13 @@ class ChessDataset(IterableDataset):
 
 
 class PolicyLoss(nn.Module):
+    """Cross-entropy loss wrapper for policy head outputs."""
     def __init__(self):
         super().__init__()
         self.policy_loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, policy_probs, policy_target):
+        """Compute cross-entropy between logits and target action indices."""
         loss = self.policy_loss_fn(policy_probs, policy_target)
         return loss
 
@@ -65,6 +81,22 @@ class PolicyLoss(nn.Module):
 
 def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
                 n_samples=None, val_split=0.2):
+    """Train the policy network on preprocessed chess move data.
+
+    Splits shard files into train/validation, streams batches with DataLoader,
+    and returns loss/accuracy histories for both splits.
+
+    :param model: Instance of `DeepForkNet`
+    :param processed_dir: Directory with processed .pt shard files
+    :param epochs: Number of epochs to train
+    :param batch_size: Global batch size
+    :param lr: Learning rate for Adam optimizer
+    :param device: 'cuda' or 'cpu'
+    :param samples_per_file: Number of samples stored per shard file
+    :param n_samples: Optional cap on number of samples used from the dataset
+    :param val_split: Fraction of shard files used for validation (0..1)
+    :return: (train_loss_hist, val_loss_hist, train_acc_hist, val_acc_hist)
+    """
     all_files = sorted(Path(processed_dir).glob("*.pt"))
     if n_samples is not None:
         all_files = all_files[:math.ceil(n_samples / samples_per_file)]
