@@ -279,16 +279,17 @@ def move_to_action(move: chess.Move) -> int:
 
 if __name__ == "__main__":
     states = {get_state_hash(chess.Board()): 1}
-    history = np.zeros((8, 14, 8, 8), dtype=np.float32)
+    history_count = 1
+    history = np.zeros((history_count, 14, 8, 8), dtype=np.float32)
 
     example_board = chess.Board()
-    state_to_tensor(history, example_board, states)
+    state_to_tensor(history, example_board, states, history_count)
     example_board.push_san("Nf3")
-    state_to_tensor(history, example_board, states)
+    state_to_tensor(history, example_board, states, history_count)
     example_board.push_san("Nc6")
-    state_to_tensor(history, example_board, states)
+    state_to_tensor(history, example_board, states, history_count)
     example_board.push_san("Ng1")
-    state_to_tensor(history, example_board, states)
+    state_to_tensor(history, example_board, states, history_count)
     example_board.push_san("Nb8")
     np.set_printoptions(threshold=np.inf)
 
@@ -306,4 +307,4 @@ if __name__ == "__main__":
     print("\nSum of legal distribution:", sum(legal_dist.values()))
     print("Number of legal moves:", len(legal_dist))
 
-    # print(state_to_tensor(history, example_board, states))
+    print(state_to_tensor(history, example_board, states, history_count))

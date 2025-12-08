@@ -6,7 +6,6 @@ leverages policy and value estimates from the DeepForkNet model to guide search.
 """
 
 from __future__ import annotations
-from typing import Hashable
 from utils.chess_utils import state_to_tensor, update_history, get_move_distribution
 from model import DeepForkNet
 from utils.model_utils import visualize_mcts_graph
@@ -132,7 +131,7 @@ class MCTSNode:
         }
 
 
-    def backprop(self, value: np.float32):
+    def backprop(self, value: float):
         """
         Adds values to all the nodes in the path from root to the current node.
         :param value: Value from models value head
@@ -160,6 +159,84 @@ class MCTSNode:
                 best_move = move
         return best_move
 
+    def evaluate_board_simple(self, board: chess.Board) -> float:
+        """
+        Simple evaluation of the board using material balance.
+        Positive = good for White, Negative = good for Black.
+        Returns a float.
+        """
+        PIECE_VALUES = {
+            chess.PAWN: 1,
+            chess.KNIGHT: 3,
+            chess.BISHOP: 3,
+            chess.ROOK: 5,
+            chess.QUEEN: 9,
+            chess.KING: 0  # king’s value is infinite in reality, but we ignore it here
+        }
+
+        value = 0
+        for piece_type in PIECE_VALUES:
+            value += PIECE_VALUES[piece_type] * (
+                        len(board.pieces(piece_type, chess.WHITE)) - len(board.pieces(piece_type, chess.BLACK)))
+
+        # Optional: small bonus for center pawns
+        center_squares = [chess.D4, chess.D5, chess.E4, chess.E5]
+        for sq in center_squares:
+            if board.piece_at(sq):
+                if board.piece_at(sq).color == chess.WHITE:
+                    value += 0.1
+                else:
+                    value -= 0.1
+
+        max_material = 39  # sum of all pieces except kings
+        return max(-1.0, min(1.0, value / max_material))
+
+    def rollout(self, model: DeepForkNet, device: str, history_count: int, max_depth: int = 40) -> float:
+        """
+
+        Returns:
+            value estimate from root player's perspective (+1, -1, or model eval)
+        """
+
+        board_copy = self.board.copy()
+        seen_states = dict(self.seen_states)
+        state_history = np.copy(self.state_history)
+
+        player = board_copy.turn  # remember whose POV this value is for
+
+        for _ in range(max_depth):
+
+            # Stop if terminal
+            if board_copy.is_game_over():
+                result = board_copy.result()
+                if result == "1-0":  return 1 if player == chess.WHITE else -1
+                if result == "0-1":  return -1 if player == chess.WHITE else 1
+                return 0  # draw
+
+            # Build input tensor
+            state_tensor = state_to_tensor(state_history, board_copy, seen_states, history_count)
+            state_tensor = torch.from_numpy(state_tensor).float().unsqueeze(0).to(device)
+
+            # Get model policy logits
+            logits = model(state_tensor).detach().cpu().numpy().reshape(-1)
+
+            # Convert logits
+            distr = get_move_distribution(logits, board_copy)
+            moves, probs = zip(*distr.items())
+            probs = np.array(probs, dtype=np.float32)
+            probs = probs / probs.sum()
+            best_move = np.random.choice(moves, p=probs)
+
+            # Play the best move
+            board_copy.push(best_move)
+
+            # Update history and repetition
+            update_history(state_history, board_copy, history_count, seen_states)
+
+        value_est = self.evaluate_board_simple(board_copy)
+
+        return value_est if player == chess.WHITE else -value_est
+
 
 def MCTS(
         game_state: chess.Board,
@@ -168,8 +245,8 @@ def MCTS(
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
-        c_puct: float = 2, # The bigger, the more it relies on net prediction
-        history_count: int = 8
+        c_puct: float = 1, # The bigger, the more it relies on net prediction
+        history_count: int = 1
 ) -> chess.Move:
     """
     Run a Monte Carlo Tree Search starting from the given game state.
@@ -187,7 +264,8 @@ def MCTS(
     root = MCTSNode(board=game_state, seen_states=seen_states.copy(), state_history=state_history.copy())
     for i in range(num_sim):
         leaf = root
-        # Move from root to best leaf
+
+        # Selection
         while leaf.is_expanded:
             best_move = leaf.get_best_move(c_puct)
             leaf = leaf.add_or_get_child(best_move, history_count)
@@ -195,21 +273,19 @@ def MCTS(
         state_tensor = state_to_tensor(leaf.state_history, leaf.board, leaf.seen_states, history_count)
         state_tensor = torch.from_numpy(state_tensor).float().to(device)
         # Model prediction
-        value_est, prior_logits = model(state_tensor)
-        if leaf == root:
-            print(value_est.item())
+        prior_logits = model(state_tensor).detach().to(device).numpy().reshape(-1)
 
-        # Convert torch tensors into numpy shapes
-        prior_logits = prior_logits.detach().to(device).numpy().reshape(-1)
-        value_est = value_est.item()
-
+        # Expansion
         if not leaf.is_terminal():
             move_distr = get_move_distribution(prior_logits, leaf.board)
             leaf.expand(move_distr)
 
+        # Rollout
+        value_est = leaf.rollout(model, device, history_count)
+
         # Backpropagation
         leaf.backprop(value_est)
-    #visualize_mcts_graph(root)
+    visualize_mcts_graph(root)
     for move, (child, est) in root.children.items():
         if child is not None and child.visit_count is not None and child.move is not None and child.total_value is not None:
             print(f"Child {child.move} count: {child.visit_count} value: {child.total_value} est: {child.prior_est}")

@@ -5,12 +5,9 @@ from torch.utils.data import DataLoader, IterableDataset
 import torch.nn as nn
 from pathlib import Path
 import matplotlib.pyplot as plt
-
 from tqdm import tqdm
-
 from model import DeepForkNet
 import os
-
 from data_preprocessing import get_project_root
 
 
@@ -176,12 +173,12 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
 
 if __name__ == "__main__":
     torch.manual_seed(283)
-    model = DeepForkNet(depth=4, filter_count=64, history_size=1)
+    model = DeepForkNet(depth=5, filter_count=128, history_size=1)
     root = get_project_root()
     processed_dir = root / "data" / "processed"
 
     epochs = 20
-    n_samples = 100_000
+    n_samples = 334_438
     batch_size = 512
 
     if torch.cuda.is_available():
