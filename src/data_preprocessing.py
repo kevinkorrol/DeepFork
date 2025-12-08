@@ -114,4 +114,4 @@ def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
 
 
 if __name__ == "__main__":
-    save_all_games_in_files(samples_per_file=300, start=0, n_games=150_000, history_count=1)
+    save_all_games_in_files(samples_per_file=300, start=0, n_games=334_438, history_count=1)

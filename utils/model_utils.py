@@ -7,7 +7,6 @@ render a styled image containing an HTML board for each node.
 
 import graphviz
 
-
 def visualize_mcts_graph(root_node, filename: str = "mcts_tree"):
     """
     Generate and render a Graphviz visualization of the MCTS tree rooted at root_node.
@@ -24,7 +23,6 @@ def visualize_mcts_graph(root_node, filename: str = "mcts_tree"):
         edge_attr={'fontname': 'Arial', 'fontsize': '8'}
     )
 
-    # Add Nodes
     for node in graph_data['nodes']:
         dot.node(
             str(node['id']),
@@ -34,16 +32,13 @@ def visualize_mcts_graph(root_node, filename: str = "mcts_tree"):
             shape=node['shape']
         )
 
-    # Add Edges
     for edge in graph_data['edges']:
         dot.edge(
             str(edge['source']),
             str(edge['target']),
-            label=edge['label'],
             penwidth=str(edge['penwidth'])
         )
 
-    # Render the graph to a file (e.g., PDF, PNG)
     dot.render(filename, view=True, format='png')
 
 
@@ -80,7 +75,6 @@ def get_html_board_label(node) -> str:
 
     for char in piece_placement:
         if char == '/':
-            # End of rank: finalize the current row and reset for the next
             html_rows.append(current_row_html)
             current_row_html = ''
             rank_idx += 1
@@ -88,40 +82,24 @@ def get_html_board_label(node) -> str:
             continue
 
         if char.isdigit():
-            # Empty squares (Fix: using &nbsp; from previous suggestion)
             num_empty = int(char)
             for _ in range(num_empty):
                 bg_color = get_square_color(rank_idx, file_idx)
                 current_row_html += f'<TD BGCOLOR="{bg_color}" WIDTH="20" HEIGHT="20">&nbsp;</TD>'
                 file_idx += 1
         else:
-            # Piece
             piece_char = PIECE_UNICODE.get(char, '')
             bg_color = get_square_color(rank_idx, file_idx)
             # Ensure piece is vertically centered
             current_row_html += f'<TD BGCOLOR="{bg_color}" WIDTH="20" HEIGHT="20" VALIGN="MIDDLE"><FONT POINT-SIZE="18">{piece_char}</FONT></TD>'
             file_idx += 1
 
-    # Add the last row after the loop finishes
     html_rows.append(current_row_html)
 
-    # 1. Build the Board Table
     html_table = f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0">'
     for row_html in html_rows:
-        html_table += f'<TR>{row_html}</TR>'  # Each row is wrapped cleanly
+        html_table += f'<TR>{row_html}</TR>'
 
-    # 2. Add the Stats Row (same as before)
-    q_value = node.Q()
-    fillcolor = 'green' if q_value > 0.1 else ('red' if q_value < -0.1 else 'yellow')
-
-    stats_label = (
-        f"<FONT POINT-SIZE='10' COLOR='BLACK'>"
-        f"Move: {node.move.uci() if node.move else 'ROOT'}<BR/>"
-        f"N: {node.visit_count} | Q: {q_value:.3f} | P: {node.prior_est:.3f}"
-        f"</FONT>"
-    )
-
-    html_table += f'<TR><TD COLSPAN="8" BGCOLOR="{fillcolor}">{stats_label}</TD></TR>'
     html_table += '</TABLE>>'
     return html_table
 
@@ -138,32 +116,27 @@ def to_graph_data(node, node_id: int = 0, graph_data: dict = None) -> tuple:
     if graph_data is None:
         graph_data = {'nodes': [], 'edges': []}
 
-    # Label is an HTML string
     html_label = get_html_board_label(node)
 
     graph_data['nodes'].append({
         'id': node_id,
         'label': html_label,
-        'fillcolor': 'white', # Background
+        'fillcolor': 'white',
         'style': 'filled',
-        'shape': 'box',  # Must be 'box' or 'plain' for HTML labels
+        'shape': 'box',
     })
 
     next_node_id = node_id + 1
 
-    # Edge Data
     for move, (child, est) in node.children.items():
         if child is not None:
             child_id = next_node_id
 
             child_visits = child.visit_count
-            puct = node.Q() + node.U(1.0, est, child_visits)
-            edge_label = f"{move.uci()}\nPUCT: {puct:.3f}"
 
             graph_data['edges'].append({
                 'source': node_id,
                 'target': child_id,
-                'label': edge_label,
                 'penwidth': 1 + child_visits / (node.visit_count + 1) * 3,
             })
 

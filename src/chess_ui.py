@@ -23,10 +23,10 @@ from kivy.clock import Clock
 
 from MCTS import MCTS
 from model import DeepForkNet
-from utils.chess_utils import get_state_hash
+from utils.chess_utils import get_state_hash, state_to_tensor, get_move_distribution
 
 BOARD_SIZE = 600
-NUM_SIM = 600
+NUM_SIM = 60
 
 
 class ChessUI(App):
@@ -165,6 +165,15 @@ class ChessUI(App):
         if self.board.turn != agent_is_white or self.board.is_game_over() or self.board.halfmove_clock >= 200:
             return
 
+        # state_tensor = state_to_tensor(self.history, self.board, self.states, self.history_count)
+        # state_tensor = torch.from_numpy(state_tensor).float().to('cpu')
+        # logits = self.model(state_tensor)
+        # logits = logits.detach().to('cpu').numpy().reshape(-1)
+        # distr = get_move_distribution(logits, self.board)
+        # distr = sorted(distr.items(), key=lambda item: item[1], reverse=True)
+        # print("\n".join(f"{move} {float(pred)}" for move, pred in distr))
+        # clanker_move = distr[0][0]
+
         clanker_move = MCTS(
             self.board,
             NUM_SIM,
@@ -189,6 +198,6 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=6, filter_count=64, history_size=1)
-    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/60epochs_allsamples_512batch_size.pt", map_location='cpu'))
+    model = DeepForkNet(depth=4, filter_count=128, history_size=1)
+    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/10epochs_4000000samples_512batch_size.pt", map_location='cpu'))
     ChessUI('w', model, history_count=1).run()

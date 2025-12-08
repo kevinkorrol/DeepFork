@@ -16,7 +16,7 @@ class ConvBlock(nn.Module):
     def __init__(self, history_size=8, filter_count=256):
         super(ConvBlock, self).__init__()
         self.history_size = history_size
-        self.conv = nn.Conv2d(14 * history_size + 7, filter_count, 3, padding=1)
+        self.conv = nn.Conv2d(14 * history_size + 8, filter_count, 3, padding=1)
         self.bn = nn.BatchNorm2d(filter_count)
 
     def forward(self, data):
@@ -24,7 +24,7 @@ class ConvBlock(nn.Module):
         :param data: Input tensor of shape (batch, (14*h + 7)*8*8) or already (batch, channels, 8, 8)
         :return: Feature map after a conv + BN + ReLU
         """
-        data = data.view(-1, 14 * self.history_size + 7, 8, 8)  # batch-size, channels, board_w, board_h
+        data = data.view(-1, 14 * self.history_size + 8, 8, 8)  # batch-size, channels, board_w, board_h
         return F.relu(self.bn(self.conv(data)))
 
 
@@ -55,34 +55,22 @@ class OutBlock(nn.Module):
 
     def __init__(self, filter_count=256):
         super(OutBlock, self).__init__()
-        # Value head
-        self.convV = nn.Conv2d(filter_count, 1, 1)
-        self.bnV = nn.BatchNorm2d(1)
-        self.lnV1 = nn.Linear(8 * 8, 256)
-        self.lnV2 = nn.Linear(256, 1)
 
         # Policy head
         self.convP = nn.Conv2d(filter_count, 73, 1)
         self.bnP = nn.BatchNorm2d(73)
-        # self.lsmP = nn.LogSoftmax(dim=1)
 
     def forward(self, data):
         """
         :param data: Feature map tensor
-        :return: Tuple (value, policy_log_probs)
-                 value shape: (batch, 1), policy shape: (batch, 73*8*8)
+        :return: policy_log_probs
         """
-        # Value head
-        v = F.relu(self.bnV(self.convV(data)))
-        v = F.relu(self.lnV1(v.view(-1, 8 * 8)))
-        v = self.lnV2(v).tanh()
 
         # Policy head
-        p = F.relu(self.bnP(self.convP(data)))
+        p = self.bnP(self.convP(data))
         p = p.view(p.size(0), -1)
-        # p = self.lsmP(p)
 
-        return v, p
+        return p
 
 
 class DeepForkNet(nn.Module):
@@ -94,7 +82,7 @@ class DeepForkNet(nn.Module):
     :param history_size: Number of historical board states encoded in input
     """
 
-    def __init__(self, depth=10, filter_count=256, history_size=8):
+    def __init__(self, depth=5, filter_count=128, history_size=1):
         super(DeepForkNet, self).__init__()
         self.filter_count = filter_count
         self.depth = depth
@@ -110,5 +98,5 @@ class DeepForkNet(nn.Module):
         data = self.conv_block(data)
         for block in self.res_blocks:
             data = block(data)
-        v, p = self.out_block(data)
-        return v, p
+        p = self.out_block(data)
+        return p
