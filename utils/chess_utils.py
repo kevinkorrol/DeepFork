@@ -217,64 +217,127 @@ def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
     return plane
 
 
+DIRECTIONS = [
+    (0, 1),   # N
+    (1, 1),   # NE
+    (1, 0),   # E
+    (1, -1),  # SE
+    (0, -1),  # S
+    (-1, -1), # SW
+    (-1, 0),  # W
+    (-1, 1)   # NW
+]
+
+KNIGHT_DIFFS = [
+    (1, 2), (2, 1), (2, -1), (1, -2),
+    (-1, -2), (-2, -1), (-2, 1), (-1, 2)
+]
+
+PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
+
+
 def move_to_action(move: chess.Move) -> int:
-    """
-    Converts the given move to an index of the 4672-dimensional action vector.
+    from_sq = move.from_square
+    to_sq = move.to_square
 
-    The action vector is a representation of 73 move shapes for each of the squares on the board (hence the 73x8x8).
-      - Planes 0-56 are queenlike moves that also cover bishops and rooks, 8 directions x 1-7 dist.
-      - Planes 56-64 are for knight moves.
-      - Planes 64-73 are for pawn promotions, where a pawn can promote in three directions and can
-        be converted to knight, bishop, or rook (queen is default so not counted here).
+    fx, fy = chess.square_file(from_sq), chess.square_rank(from_sq)
+    tx, ty = chess.square_file(to_sq), chess.square_rank(to_sq)
+    dx, dy = tx - fx, ty - fy
 
-    :param move: The chess move to be encoded
-    :return: An integer representation of the given chess move
-    """
-    square_offset = move.from_square * 64
+    # Queenlike moves
+    if dx == 0 or dy == 0 or abs(dx) == abs(dy):
+        # identify direction
+        sdx = (0 if dx == 0 else (1 if dx > 0 else -1))
+        sdy = (0 if dy == 0 else (1 if dy > 0 else -1))
 
-    from_rank = chess.square_rank(move.from_square)
-    to_rank = chess.square_rank(move.to_square)
-    from_file = chess.square_file(move.from_square)
-    to_file = chess.square_file(move.to_square)
+        for dir_idx, (vx, vy) in enumerate(DIRECTIONS):
+            if (vx, vy) == (sdx, sdy):
+                break
 
-    rank_diff = to_rank - from_rank
-    file_diff = to_file - from_file
+        distance = max(abs(dx), abs(dy))  # 1..7
+        plane = dir_idx * 7 + (distance - 1)  # 0..55
 
-    # If the move is horizontal or vertical
-    rooklike = (rank_diff == 0 or file_diff == 0)
-    bishoplike = (abs(rank_diff) == abs(file_diff))
-    queenlike = rooklike or bishoplike
+        return plane * 64 + from_sq
 
-    rank_pos_bit = 1 if rank_diff > 0 else 0
-    file_pos_bit = 1 if file_diff > 0 else 0
-    rook_bit = 1 if rooklike else 0
+    # KNightlike moves
+    for k, (kx, ky) in enumerate(KNIGHT_DIFFS):
+        if dx == kx and dy == ky:
+            plane = 56 + k  # planes 56–63
+            return plane * 64 + from_sq
 
-    if queenlike:
-        # Check if the move is a promotion
-        promotion_piece = move.promotion
-        if promotion_piece is not None and promotion_piece != chess.QUEEN:
+    # Promotions
+    if move.promotion in PROMO_PIECES:
+        # direction: forward / capture-left / capture-right
+        if dx == 0:
+            promo_dir = 0       # forward
+        elif dx == -1:
+            promo_dir = 1       # capture-left
+        else:
+            promo_dir = 2       # capture-right
 
-            promotion_pieces = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
-            promotion_idx = promotion_pieces.index(promotion_piece) + 1
+        promo_piece_idx = PROMO_PIECES.index(move.promotion)
 
-            # Direction encoding for promotion (0-2)
-            # rooklike: bit 2, file_pos_bit: bit 1
-            direction = (rook_bit << 1) + file_pos_bit
+        plane = 64 + promo_dir * 3 + promo_piece_idx  # planes 64–72
+        return plane * 64 + from_sq
 
-            return square_offset + direction * 3 + promotion_idx + 63 # Add 63 to account for queen- and knightlike moves
+    raise ValueError(f"Move {move} not representable in AlphaZero encoding.")
 
-        # Encode the direction of the move with 3 bits (8 directions)
-        direction = (rook_bit << 2) + (rank_pos_bit << 1) + file_pos_bit
-        distance = chess.square_distance(move.from_square, move.to_square)
+def action_to_move(action: int) -> chess.Move:
+    plane = action // 64
+    from_sq = action % 64
+    fx, fy = chess.square_file(from_sq), chess.square_rank(from_sq)
 
-        return square_offset + direction * 8 + distance
+    # Queenlike moves
+    if plane < 56:
+        dir_idx = plane // 7
+        dist = (plane % 7) + 1
 
-    # If the move isn't a queenlike move, then it must be a knightlike move
-    knight_rank_1 = rank_diff & 1 # Check if the knight moves two ranks or one
+        vx, vy = DIRECTIONS[dir_idx]
+        tx = fx + vx * dist
+        ty = fy + vy * dist
 
-    # Encode the direction of the move with 3 bits (8 directions)
-    direction_encoding = (knight_rank_1 << 2) + (rank_pos_bit << 1) + file_pos_bit + 1
-    return square_offset + direction_encoding + 55 # Add 55 to account for queenlike moves
+        if 0 <= tx < 8 and 0 <= ty < 8:
+            return chess.Move(
+                from_sq,
+                chess.square(tx, ty)
+            )
+
+    # Knightlike moves
+    if 56 <= plane < 64:
+        k = plane - 56
+        kx, ky = KNIGHT_DIFFS[k]
+
+        tx = fx + kx
+        ty = fy + ky
+
+        if 0 <= tx < 8 and 0 <= ty < 8:
+            return chess.Move(
+                from_sq,
+                chess.square(tx, ty)
+            )
+
+    # Promotions
+    if 64 <= plane < 73:
+        sub = plane - 64
+
+        promo_dir = sub // 3  # 0..2
+        promo_piece_idx = sub % 3
+        promo_piece = PROMO_PIECES[promo_piece_idx]
+
+        dx = [0, -1, 1][promo_dir]
+        dy = 1 if chess.square_rank(from_sq) == 6 else -1  # white/black
+
+        tx = fx + dx
+        ty = fy + dy
+
+        if 0 <= tx < 8 and 0 <= ty < 8:
+            return chess.Move(
+                from_sq,
+                chess.square(tx, ty),
+                promotion=promo_piece
+            )
+
+    raise ValueError(f"Action {action} out of range.")
 
 
 if __name__ == "__main__":
@@ -307,4 +370,9 @@ if __name__ == "__main__":
     print("\nSum of legal distribution:", sum(legal_dist.values()))
     print("Number of legal moves:", len(legal_dist))
 
-    print(state_to_tensor(history, example_board, states, history_count))
+    move = chess.Move(chess.B1, chess.B6)
+    action = move_to_action(move)
+    print(action)
+    print(action_to_move(action))
+
+    #print(state_to_tensor(history, example_board, states, history_count))
