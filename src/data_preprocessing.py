@@ -23,10 +23,16 @@ def get_project_root() -> Path:
 
 def load_n_processed_games(n, start, origin_dir="data/raw") -> Generator:
     """
-    Stream up to n chess games from PGN files under data/raw.
-    :param n: Maximum number of games to yield (None for all)
-    :param origin_dir: A directory that is read
-    :yield: A generator of games
+    Stream chess games from PGN files under the given origin directory.
+
+    Notes: For internal use in filtering and dataset creation. The generator
+    yields `None` for the first `start` positions to keep progress bars aligned,
+    then yields `chess.pgn.Game` objects up to `n` games if `n` is provided.
+
+    :param n: Maximum number of games to yield after `start` (None for all)
+    :param start: Number of initial games to skip (yielding `None` placeholders)
+    :param origin_dir: Directory to read PGN files from (relative to project root)
+    :yield: Either None (for skipped items) or `chess.pgn.Game` instances
     """
     root = get_project_root()
     raw_dir = root / origin_dir
@@ -57,8 +63,14 @@ def save_all_games_in_files(samples_per_file, start, n_games, history_count) -> 
     """
     Save processed games into chunked .pt files under data/processed.
 
-    :param samples_per_file: Number of samples to save in each file
-    :param n_games: Number of games to be loaded
+    Each saved file contains exactly `samples_per_file` samples, except possibly
+    the last one.
+
+    :param samples_per_file: Number of samples to save in each shard file
+    :param start: Number of initial games to skip before processing
+    :param n_games: Total number of games to load from `data/raw`
+    :param history_count: Number of past board states to include in each sample
+    :return: None
     """
     root = get_project_root()
     processed_dir = root / "data/processed"
@@ -87,7 +99,14 @@ def save_all_games_in_files(samples_per_file, start, n_games, history_count) -> 
 
 def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:
     """
-    Filters all games in /temp to be only with ratings over 2400 and writes them to dataset.pgn.
+    Filter games in data/temp by ELO and length and write to data/raw/dataset.pgn.
+
+    A game is included if both players have numeric ELO >= `min_elo` and the
+    game length exceeds `min_half_moves` plies (half-moves).
+
+    :param min_elo: Minimum numeric ELO rating for both players
+    :param min_half_moves: Minimum number of plies required to keep a game
+    :return: None
     """
     root = get_project_root()
     dataset_path = root / "data/raw/dataset.pgn"

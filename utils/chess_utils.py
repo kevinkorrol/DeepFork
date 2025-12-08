@@ -11,9 +11,11 @@ from collections.abc import Hashable
 
 def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
     """
-    :param game: Game object to be converted
-    :param history_count: Number of states to include in history
-    :return: A list of sample dicts: { state, move }
+    Convert a single PGN game into a sequence of training samples.
+
+    :param game: `chess.pgn.Game` to convert
+    :param history_count: Number of previous states to include in the stacked input
+    :return: List of dict samples with keys `state` (np.ndarray) and `action` (int)
     """
     current_board = game.board()
     state_history = np.zeros((history_count, 14, 8, 8), dtype=np.float32)
@@ -42,15 +44,16 @@ def state_to_tensor(
         history_count: int
 ) -> np.ndarray:
     """
-    Update state_history and return a (h*14 + 7)x8x8 tensor of board state where
+    Update `state_history` and return a `(history_count*14 + 8) x 8 x 8` tensor of board state where
       - planes 1-(h*14) are the last h piece placements and their
         repetition counter-planes (12 for piece placement and 2 repetition counter planes each)
-      - planes (h*14 + 1)-(h*14 + 8) are global features.
+      - planes (h*14 + 1)-(h*14 + 8) are global features
+      - plane (h*14 + 8) encodes legal move targets for the side to move
     :param state_history: A list of last h piece placement tensors
     :param new_board: Current state
     :param seen_states: Seen state, repetition count pairs
     :param history_count: History state count
-    :return: 119x8x8 tensor of board state
+    :return: `(history_count*14 + 8) x 8 x 8` tensor of board state
     """
 
     update_history(state_history, new_board, history_count, seen_states)
@@ -180,11 +183,16 @@ def get_move_distribution(
         temp: float = 1.0
 ) -> dict:
     """
-    Gets distribution of moves from action distribution by mapping only legal moves from it.
-    The action array represents a 73x8x8 action encoding.
-    :param action_distribution:
+    Map a full action distribution to legal moves only and normalize.
+
+    The input `action_distribution` is over 4672 actions (73x8x8). This function
+    filters to legal moves in the given `board` and applies a softmax-like
+    normalization with temperature `temp`.
+
+    :param action_distribution: 1D array of shape (4672,) with unnormalized scores
     :param board: Current board state
-    :return: Probability distribution over all legal moves
+    :param temp: Temperature for sharpening/smoothing logits before softmax
+    :return: Dict mapping `chess.Move` to probability for all legal moves
     """
 
     legal_moves, move_mask = get_legal_moves_mask(board)
@@ -199,6 +207,14 @@ def get_move_distribution(
 
 
 def get_legal_moves_mask(board: chess.Board) -> tuple:
+    """
+    Compute a boolean mask over the 4672 actions indicating legal moves.
+
+    :param board: Current board state
+    :return: Tuple (legal_moves, move_mask) where
+             - legal_moves is a list of `chess.Move`
+             - move_mask is a boolean np.ndarray of shape (4672,)
+    """
     legal_moves = list(board.legal_moves)
     legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
     move_mask = np.zeros(4672, dtype=bool)
@@ -207,6 +223,12 @@ def get_legal_moves_mask(board: chess.Board) -> tuple:
 
 
 def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
+    """
+    Create a 1x8x8 plane with ones at target squares of legal moves.
+
+    :param board: Current board state
+    :return: np.ndarray of shape (1, 8, 8)
+    """
     plane = np.zeros((1, 8, 8), dtype=np.float32)
     for move in board.legal_moves:
         to_square = move.to_square

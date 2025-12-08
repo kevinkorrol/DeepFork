@@ -16,17 +16,34 @@ TARGET_DIR = Path("data/temp")
 NUM_FILES = 249
 
 def resolve_url(link: str) -> str:
+    """Resolve a possibly relative link to an absolute URL at pgnmentor.com.
+
+    :param link: A link extracted from the site (absolute or relative)
+    :return: Absolute URL string
+    """
     if link.startswith("http"):
         return link
     return f"https://www.pgnmentor.com/{link.lstrip('/')}"
 
-def progress_bar(count, total, fname):
+def progress_bar(count: int, total: int, fname: str) -> None:
+    """A simple inline progress bar for downloads.
+
+    :param count: Current item index (1-based)
+    :param total: Total number of items to process
+    :param fname: Filename currently downloading (for display only)
+    """
     percent = int((count / total) * 100)
     bar_len = percent // 2
     bar = "#" * bar_len + "-" * (50 - bar_len)
     print(f"\r[{bar}] {percent}% ({count}/{total}) Downloading {fname}", end="")
 
-def main():
+def main() -> None:
+    """Scrape, download, extract, filter, and clean chess PGN data.
+
+    Side effects:
+      - Creates data/temp during download/extraction and removes it at the end
+      - Writes the filtered combined PGN to data/raw/dataset.pgn
+    """
     TARGET_DIR.mkdir(parents=True, exist_ok=True)
 
     chrome_options = Options()
