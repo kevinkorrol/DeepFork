@@ -194,6 +194,6 @@ if __name__ == "__main__":
     filename = f"Loss_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
     plt.savefig(output_dir / filename)
 
-    save_path = root / "models" / "checkpoints"
+    save_path = root / "models"
     model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
