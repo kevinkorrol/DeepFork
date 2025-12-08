@@ -190,7 +190,7 @@ class MCTSNode:
         max_material = 39  # sum of all pieces except kings
         return max(-1.0, min(1.0, value / max_material))
 
-    def rollout(self, model: DeepForkNet, device: str, history_count: int, max_depth: int = 40) -> float:
+    def rollout(self, model: DeepForkNet, device: str, history_count: int, max_depth: int = 200) -> float:
         """
 
         Returns:

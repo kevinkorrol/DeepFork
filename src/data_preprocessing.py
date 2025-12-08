@@ -21,7 +21,7 @@ def get_project_root() -> Path:
     """
     return Path(__file__).resolve().parents[1]
 
-def load_n_processed_games(n, start, origin_dir="data/raw") -> Generator:
+def load_n_processed_games(n, origin_dir="data/raw") -> Generator:
     """
     Stream chess games from PGN files under the given origin directory.
 
@@ -30,7 +30,6 @@ def load_n_processed_games(n, start, origin_dir="data/raw") -> Generator:
     then yields `chess.pgn.Game` objects up to `n` games if `n` is provided.
 
     :param n: Maximum number of games to yield after `start` (None for all)
-    :param start: Number of initial games to skip (yielding `None` placeholders)
     :param origin_dir: Directory to read PGN files from (relative to project root)
     :yield: Either None (for skipped items) or `chess.pgn.Game` instances
     """
@@ -51,15 +50,12 @@ def load_n_processed_games(n, start, origin_dir="data/raw") -> Generator:
                 if game is None:
                     break
                 count += 1
-                if count > start:
-                    yield game
-                else:
-                    yield None
-                if n is not None and count >= n + start:
+                yield None
+                if n is not None and count >= n:
                     return
 
 
-def save_all_games_in_files(samples_per_file, start, n_games, history_count) -> None:
+def save_all_games_in_files(samples_per_file, n_games, history_count) -> None:
     """
     Save processed games into chunked .pt files under data/processed.
 
@@ -67,7 +63,6 @@ def save_all_games_in_files(samples_per_file, start, n_games, history_count) -> 
     the last one.
 
     :param samples_per_file: Number of samples to save in each shard file
-    :param start: Number of initial games to skip before processing
     :param n_games: Total number of games to load from `data/raw`
     :param history_count: Number of past board states to include in each sample
     :return: None
@@ -79,13 +74,13 @@ def save_all_games_in_files(samples_per_file, start, n_games, history_count) -> 
     buffer = []
     file_idx = 0
 
-    for i, game in tqdm(enumerate(load_n_processed_games(n_games, start=start)),
+    for i, game in tqdm(enumerate(load_n_processed_games(n_games)),
                      desc="Processing games",
                      unit="games",
-                     total=n_games + start):
+                     total=n_games):
         if game is None:
             continue
-        samples = game_to_tensors(game, history_count)
+        samples = game_to_tensors(game, history_count, i)
         buffer.extend(samples)
 
         if len(buffer) >= samples_per_file:

@@ -9,7 +9,7 @@ import chess.pgn
 import numpy as np
 from collections.abc import Hashable
 
-def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
+def game_to_tensors(game: chess.pgn.Game, history_count: int, game_id: int) -> list:
     """
     Convert a single PGN game into a sequence of training samples.
 
@@ -23,13 +23,14 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int) -> list:
     samples = []
 
     for move in game.mainline_moves():
-        action = move_to_action(move)
+        action = move_to_action(move, current_board.turn)
         state = state_to_tensor(state_history, current_board, seen_states, history_count)
         current_board.push(move)
 
         sample = {
             "state": state.astype(np.float32),
-            "action": action
+            "action": action,
+            "game_id": game_id
         }
 
         samples.append(sample)
@@ -92,17 +93,28 @@ def get_piece_placement_planes(board: chess.Board) -> np.ndarray:
     :param board: Board object of current state
     :return: 12x8x8 tensor of piece placement
     """
-    colors = [chess.WHITE, chess.BLACK]
-    pieces = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING]
-
     piece_placement = np.zeros((12, 8, 8), dtype=np.float32)
 
-    for i, color in enumerate(colors):
-        for j, piece in enumerate(pieces):
-            for square in board.pieces(piece, color):
-                rank = square // 8
-                file = square % 8
-                piece_placement[i * 6 + j, rank, file] = 1
+    player = board.turn
+    opponent = not player
+
+    pieces = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING]
+
+    for i, piece_type in enumerate(pieces):
+        # Current Player Pieces (Planes 0-5)
+        for square in board.pieces(piece_type, player):
+            if player == chess.BLACK:
+                square = chess.square_mirror(square)  # Flip square 180 degrees (e.g. h8 -> a1)
+            rank, file = chess.square_rank(square), chess.square_file(square)
+            piece_placement[i, rank, file] = 1
+
+        # Opponent Pieces (Planes 6-11)
+        for square in board.pieces(piece_type, opponent):
+            if player == chess.BLACK:
+                square = chess.square_mirror(square)
+            rank, file = chess.square_rank(square), chess.square_file(square)
+            piece_placement[i + 6, rank, file] = 1
+
     return piece_placement
 
 
@@ -216,7 +228,7 @@ def get_legal_moves_mask(board: chess.Board) -> tuple:
              - move_mask is a boolean np.ndarray of shape (4672,)
     """
     legal_moves = list(board.legal_moves)
-    legal_moves_idx = np.array([move_to_action(move) for move in legal_moves])
+    legal_moves_idx = np.array([move_to_action(move, board.turn) for move in legal_moves])
     move_mask = np.zeros(4672, dtype=bool)
     move_mask[legal_moves_idx] = True
     return legal_moves, move_mask
@@ -239,60 +251,64 @@ def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
     return plane
 
 
-DIRECTIONS = [
-    (0, 1),   # N
-    (1, 1),   # NE
-    (1, 0),   # E
-    (1, -1),  # SE
-    (0, -1),  # S
-    (-1, -1), # SW
-    (-1, 0),  # W
-    (-1, 1)   # NW
-]
+def move_to_action(move: chess.Move, turn: bool) -> int:
+    DIRECTIONS = [
+        (0, 1),  # N
+        (1, 1),  # NE
+        (1, 0),  # E
+        (1, -1),  # SE
+        (0, -1),  # S
+        (-1, -1),  # SW
+        (-1, 0),  # W
+        (-1, 1)  # NW
+    ]
 
-KNIGHT_DIFFS = [
-    (1, 2), (2, 1), (2, -1), (1, -2),
-    (-1, -2), (-2, -1), (-2, 1), (-1, 2)
-]
+    KNIGHT_DIFFS = [
+        (1, 2), (2, 1), (2, -1), (1, -2),
+        (-1, -2), (-2, -1), (-2, 1), (-1, 2)
+    ]
 
-PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
+    PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
 
-
-def move_to_action(move: chess.Move) -> int:
     from_sq = move.from_square
     to_sq = move.to_square
 
-    fx, fy = chess.square_file(from_sq), chess.square_rank(from_sq)
-    tx, ty = chess.square_file(to_sq), chess.square_rank(to_sq)
-    dx, dy = tx - fx, ty - fy
+    if turn == chess.BLACK:
+        # Flip the board logic 180 degrees for action encoding
+        from_sq = chess.square_mirror(from_sq)
+        to_sq = chess.square_mirror(to_sq)
+
+    from_file, from_rank = chess.square_file(from_sq), chess.square_rank(from_sq)
+    to_file, to_rank = chess.square_file(to_sq), chess.square_rank(to_sq)
+    file_diff, rank_diff = to_file - from_file, to_rank - from_rank
 
     # Queenlike moves
-    if dx == 0 or dy == 0 or abs(dx) == abs(dy):
+    if file_diff == 0 or rank_diff == 0 or abs(file_diff) == abs(rank_diff):
         # identify direction
-        sdx = (0 if dx == 0 else (1 if dx > 0 else -1))
-        sdy = (0 if dy == 0 else (1 if dy > 0 else -1))
+        sdx = (0 if file_diff == 0 else (1 if file_diff > 0 else -1))
+        sdy = (0 if rank_diff == 0 else (1 if rank_diff > 0 else -1))
 
-        for dir_idx, (vx, vy) in enumerate(DIRECTIONS):
+        for direction_idx, (vx, vy) in enumerate(DIRECTIONS):
             if (vx, vy) == (sdx, sdy):
                 break
 
-        distance = max(abs(dx), abs(dy))  # 1..7
-        plane = dir_idx * 7 + (distance - 1)  # 0..55
+        distance = max(abs(file_diff), abs(rank_diff))  # 1..7
+        plane = direction_idx * 7 + (distance - 1)  # 0..55
 
         return plane * 64 + from_sq
 
-    # KNightlike moves
+    # Knightlike moves
     for k, (kx, ky) in enumerate(KNIGHT_DIFFS):
-        if dx == kx and dy == ky:
+        if file_diff == kx and rank_diff == ky:
             plane = 56 + k  # planes 56–63
             return plane * 64 + from_sq
 
     # Promotions
     if move.promotion in PROMO_PIECES:
         # direction: forward / capture-left / capture-right
-        if dx == 0:
+        if file_diff == 0:
             promo_dir = 0       # forward
-        elif dx == -1:
+        elif file_diff == -1:
             promo_dir = 1       # capture-left
         else:
             promo_dir = 2       # capture-right
@@ -302,12 +318,30 @@ def move_to_action(move: chess.Move) -> int:
         plane = 64 + promo_dir * 3 + promo_piece_idx  # planes 64–72
         return plane * 64 + from_sq
 
-    raise ValueError(f"Move {move} not representable in AlphaZero encoding.")
+    raise ValueError(f"Move {move} not representable in current encoding.")
 
 def action_to_move(action: int) -> chess.Move:
+    DIRECTIONS = [
+        (0, 1),  # N
+        (1, 1),  # NE
+        (1, 0),  # E
+        (1, -1),  # SE
+        (0, -1),  # S
+        (-1, -1),  # SW
+        (-1, 0),  # W
+        (-1, 1)  # NW
+    ]
+
+    KNIGHT_DIFFS = [
+        (1, 2), (2, 1), (2, -1), (1, -2),
+        (-1, -2), (-2, -1), (-2, 1), (-1, 2)
+    ]
+
+    PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
+
     plane = action // 64
     from_sq = action % 64
-    fx, fy = chess.square_file(from_sq), chess.square_rank(from_sq)
+    from_file, from_rank = chess.square_file(from_sq), chess.square_rank(from_sq)
 
     # Queenlike moves
     if plane < 56:
@@ -315,27 +349,26 @@ def action_to_move(action: int) -> chess.Move:
         dist = (plane % 7) + 1
 
         vx, vy = DIRECTIONS[dir_idx]
-        tx = fx + vx * dist
-        ty = fy + vy * dist
+        to_file = from_file + vx * dist
+        to_rank = from_rank + vy * dist
 
-        if 0 <= tx < 8 and 0 <= ty < 8:
+        if 0 <= to_file < 8 and 0 <= to_rank < 8:
             return chess.Move(
                 from_sq,
-                chess.square(tx, ty)
+                chess.square(to_file, to_rank)
             )
 
     # Knightlike moves
     if 56 <= plane < 64:
-        k = plane - 56
-        kx, ky = KNIGHT_DIFFS[k]
+        knight_x, knight_y = KNIGHT_DIFFS[plane - 56]
 
-        tx = fx + kx
-        ty = fy + ky
+        to_file = from_file + knight_x
+        to_rank = from_rank + knight_y
 
-        if 0 <= tx < 8 and 0 <= ty < 8:
+        if 0 <= to_file < 8 and 0 <= to_rank < 8:
             return chess.Move(
                 from_sq,
-                chess.square(tx, ty)
+                chess.square(to_file, to_rank)
             )
 
     # Promotions
@@ -349,13 +382,13 @@ def action_to_move(action: int) -> chess.Move:
         dx = [0, -1, 1][promo_dir]
         dy = 1 if chess.square_rank(from_sq) == 6 else -1  # white/black
 
-        tx = fx + dx
-        ty = fy + dy
+        to_file = from_file + dx
+        to_rank = from_rank + dy
 
-        if 0 <= tx < 8 and 0 <= ty < 8:
+        if 0 <= to_file < 8 and 0 <= to_rank < 8:
             return chess.Move(
                 from_sq,
-                chess.square(tx, ty),
+                chess.square(to_file, to_rank),
                 promotion=promo_piece
             )
 
@@ -380,7 +413,7 @@ if __name__ == "__main__":
 
     print("Legal moves:")
     for m in list(example_board.legal_moves):
-        print(m, move_to_action(m))
+        print(m, move_to_action(m, example_board.turn))
 
     # Example random action distribution
     raw_distribution = np.random.rand(4672).astype(np.float32)
@@ -393,7 +426,7 @@ if __name__ == "__main__":
     print("Number of legal moves:", len(legal_dist))
 
     move = chess.Move(chess.B1, chess.B6)
-    action = move_to_action(move)
+    action = move_to_action(move, example_board.turn)
     print(action)
     print(action_to_move(action))
 
