@@ -59,7 +59,6 @@ class OutBlock(nn.Module):
         # Policy head
         self.convP = nn.Conv2d(filter_count, 73, 1)
         self.bnP = nn.BatchNorm2d(73)
-        # self.lsmP = nn.LogSoftmax(dim=1)
 
     def forward(self, data):
         """
@@ -70,7 +69,6 @@ class OutBlock(nn.Module):
         # Policy head
         p = self.bnP(self.convP(data))
         p = p.view(p.size(0), -1)
-        # p = self.lsmP(p)
 
         return p
 

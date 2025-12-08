@@ -179,7 +179,6 @@ class MCTSNode:
             value += PIECE_VALUES[piece_type] * (
                         len(board.pieces(piece_type, chess.WHITE)) - len(board.pieces(piece_type, chess.BLACK)))
 
-        # Optional: small bonus for center pawns
         center_squares = [chess.D4, chess.D5, chess.E4, chess.E5]
         for sq in center_squares:
             if board.piece_at(sq):
@@ -209,8 +208,10 @@ class MCTSNode:
             # Stop if terminal
             if board_copy.is_game_over():
                 result = board_copy.result()
-                if result == "1-0":  return 1 if player == chess.WHITE else -1
-                if result == "0-1":  return -1 if player == chess.WHITE else 1
+                if result == "1-0":
+                    return 1 if player == chess.WHITE else -1
+                if result == "0-1":
+                    return -1 if player == chess.WHITE else 1
                 return 0  # draw
 
             # Build input tensor

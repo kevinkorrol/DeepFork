@@ -6,6 +6,8 @@ import torch.nn as nn
 from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from triton.profiler.context import depth
+
 from model import DeepForkNet
 import os
 from data_preprocessing import get_project_root
@@ -172,19 +174,22 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
 
 
 if __name__ == "__main__":
-    torch.manual_seed(283)
-    model = DeepForkNet(depth=5, filter_count=128, history_size=1)
-    root = get_project_root()
-    processed_dir = root / "data" / "processed"
 
     epochs = 20
-    n_samples = 334_438
+    n_samples = None
     batch_size = 512
+    depth = 5
+    filter_count = 128
+    history_size = 1
 
     if torch.cuda.is_available():
         device = "cuda"
     else:
         device = 'cpu'
+    torch.manual_seed(283)
+    model = DeepForkNet(depth, filter_count, history_size)
+    root = get_project_root()
+    processed_dir = root / "data" / "processed"
     train_loss_history, val_loss_history, train_accuracy_history, val_accuracy_history = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
@@ -217,5 +222,5 @@ if __name__ == "__main__":
     plt.savefig(output_dir / filename_acc)
 
     save_path = root / "models" / "checkpoints"
-    model_name = f"{epochs}epochs_{'all' if n_samples is None else n_samples}samples_{batch_size}batch_size.pt"
+    model_name = f"{'all' if n_samples is None else n_samples}_samples__{depth}_depth__{filter_count}_filters__{history_size}_history_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
