@@ -7,8 +7,6 @@ import torch
 from torch import nn as nn
 from torch.utils.data import IterableDataset, DataLoader
 
-from src.train import batch_size, device
-
 
 def get_random_states(game_len: int, min_diff: int, num_states: int = 20) -> list:
     num_states = min(num_states, game_len // (min_diff * 2))
@@ -121,7 +119,7 @@ class ValueLoss(nn.Module):
 
 
 def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir,
-                     model_head: str, min_diff: int =1):
+                     model_head: str, batch_size: int, device: str, min_diff: int =1):
     all_files = sorted(Path(processed_dir).glob("*.pt"))
     if n_samples is not None:
         all_files = all_files[:math.ceil(n_samples / samples_per_file)]

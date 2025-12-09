@@ -26,7 +26,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
     :return: (train_loss_hist, test_loss_hist, train_acc_hist, test_acc_hist)
     """
     
-    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir, model_head)
+    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir, model_head, batch_size=batch_size, device=device)
 
     train_history = []
     train_accuracy_history = []
@@ -108,7 +108,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
 def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
                        n_samples=None, test_split=0.05, min_diff=15):
     train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split,
-                                                 processed_dir, model_head, min_diff)
+                                                 processed_dir, model_head, batch_size=batch_size, device=device, min_diff=min_diff)
 
     train_history = []
     test_history = []
