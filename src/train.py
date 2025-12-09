@@ -123,7 +123,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         model.train()
         training_loss = 0.0
         train_batches = 0
-        for state, game_result in tqdm(train_loader, unit="batch", total=total_len * (1 - test_split)):
+        for state, game_result in tqdm(train_loader, unit="batch"):
             state = state.to(device)
             game_result = game_result.to(device)
 
@@ -143,11 +143,11 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         test_loss = 0
         test_batches = 0
         with torch.no_grad():
-            for state, _, game_result in tqdm(test_loader, unit="batch", total=total_len * test_split):
+            for state, _, game_result in tqdm(test_loader, unit="batch"):
                 state = state.to(device)
                 game_result = game_result.to(device)
 
-                value_est = model(state)
+                value_est = model(state).squeeze(-1)
                 loss = criterion(value_est, game_result)
 
                 test_loss += loss.item()
@@ -161,7 +161,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
             f"test loss: {avg_test_loss:.4f} "
         )
 
-        return train_history, test_history
+    return train_history, test_history
 
 
 if __name__ == "__main__":
