@@ -1,150 +1,160 @@
-"""
-Utilities for visualizing the MCTS search tree with Graphviz.
+import math
+import os
+import random
+from pathlib import Path
 
-Provides helpers to convert a tree of MCTSNode objects into Graphviz data and
-render a styled image containing an HTML board for each node.
-"""
+import torch
+from torch import nn as nn
+from torch.utils.data import IterableDataset, DataLoader
 
-import graphviz
+from src.train import batch_size, device
 
-def visualize_mcts_graph(root_node, filename: str = "mcts_tree"):
+
+def get_random_states(game_len: int, min_diff: int, num_states: int = 20) -> list:
+    num_states = min(num_states, game_len // (min_diff * 2))
+    idxs = []
+    prev_idx = -min_diff
+
+    part = game_len // num_states
+    for i in range(num_states):
+        min_idx = prev_idx + min_diff
+        if min_idx >= game_len:
+            return idxs
+        max_idx = min(min_idx + part, game_len - 1)
+        rand_idx = random.randrange(min_idx, max_idx)
+        idxs.append(rand_idx)
+        prev_idx = rand_idx
+
+    return idxs
+
+
+class ChessDataset(IterableDataset):
+    """Iterable dataset over saved tensor shards produced by preprocessing.
+
+    :param processed_dir: Directory containing .pt shard files
+    :param samples_per_file: Number of samples in each shard file
+    :param n_samples: Optional cap on total samples (used to limit files)
+    :param files: Optional explicit list of files to iterate over
     """
-    Generate and render a Graphviz visualization of the MCTS tree rooted at root_node.
+    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, min_diff: int, model_head: str, files=None):
+        if files is not None:
+            self.files = files
+        else:
+            if n_samples is None:
+                self.files = sorted(Path(processed_dir).glob("*.pt"))
+            else:
+                self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
+        self.samples_per_file = samples_per_file
+        self.min_diff = min_diff
+        self.model_head = model_head
+        print(f"Dataset initialized with {len(self.files)} files")
 
-    :param root_node: Root MCTSNode of the search tree
-    :param filename: Output filename without extension
-    :return: None. Renders a PNG file via graphviz.Digraph.render
-    """
-    graph_data, _ = to_graph_data(root_node)
-    dot = graphviz.Digraph(
-        comment='MCTS Search Tree',
-        graph_attr={'rankdir': 'TB', 'splines': 'true', 'ranksep': '0.5'},
-        node_attr={'fontname': 'Arial', 'fontsize': '10', 'labelloc': 't'},
-        edge_attr={'fontname': 'Arial', 'fontsize': '8'}
+    def _yield_file(self, path):
+        """Yield samples (state, action) from a single shard file.
+
+        :param path: Path to a .pt file saved during preprocessing
+        :yield: Tuples (state: FloatTensor, action: LongTensor)
+        """
+        data = torch.load(path)
+        if self.model_head == "value":
+            current_game_idx = -1
+            game_state_idx = 0
+            idxs = []
+            for sample in data:
+                if current_game_idx != sample["game_id"]:
+                    idxs = get_random_states(sample["game_length"], min_diff=self.min_diff)
+                    game_state_idx = 0
+                if game_state_idx in idxs:
+                    yield (
+                        torch.tensor(sample["state"], dtype=torch.float32),
+                        torch.tensor(sample["game_result"], dtype=torch.float32)
+                    )
+                game_state_idx += 1
+        elif self.model_head == "policy":
+            for sample in data:
+                yield (
+                    torch.tensor(sample["state"], dtype=torch.float32),
+                    torch.tensor(sample["action"], dtype=torch.long)
+                )
+
+    def __len__(self):
+        """Approximate dataset length across all shard files."""
+        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
+
+    def __iter__(self):
+        """Iterate over samples, sharded across DataLoader workers if any."""
+        worker_info = torch.utils.data.get_worker_info()
+
+        if worker_info is None:
+            files = self.files
+        else:
+            num_workers = worker_info.num_workers
+            worker_id = worker_info.id
+            files = self.files[worker_id::num_workers]
+
+        for f in files:
+            yield from self._yield_file(f)
+
+
+class PolicyLoss(nn.Module):
+    """Cross-entropy loss wrapper for policy head outputs."""
+    def __init__(self):
+        super().__init__()
+        self.policy_loss_fn = nn.CrossEntropyLoss()
+
+    def forward(self, policy_probs, policy_target):
+        """Compute cross-entropy between logits and target action indices."""
+        loss = self.policy_loss_fn(policy_probs, policy_target)
+        return loss
+
+
+class ValueLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.value_loss_fn = nn.MSELoss()
+
+    def forward(self, value_est, value_target):
+        loss = self.value_loss_fn(value_est, value_target)
+        return loss
+
+
+
+
+def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir,
+                     model_head: str, min_diff: int =1):
+    all_files = sorted(Path(processed_dir).glob("*.pt"))
+    if n_samples is not None:
+        all_files = all_files[:math.ceil(n_samples / samples_per_file)]
+
+    n_test = max(1, int(len(all_files) * test_split))
+    train_files = all_files[:-n_test]
+    test_files = all_files[-n_test:]
+
+    print(f"Train files: {len(train_files)}, test files: {len(test_files)}")
+
+    train_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=train_files,
+                                 min_diff=min_diff, model_head=model_head)
+    test_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=test_files,
+                                min_diff=min_diff, model_head="policy")
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        num_workers=os.cpu_count(),
+        pin_memory=device == 'cuda',
+        persistent_workers=True,
+        prefetch_factor=4,
     )
 
-    for node in graph_data['nodes']:
-        dot.node(
-            str(node['id']),
-            label=node['label'],
-            fillcolor=node['fillcolor'],
-            style=node['style'],
-            shape=node['shape']
-        )
-
-    for edge in graph_data['edges']:
-        dot.edge(
-            str(edge['source']),
-            str(edge['target']),
-            penwidth=str(edge['penwidth'])
-        )
-
-    dot.render(filename, view=True, format='png')
-
-
-def get_html_board_label(node) -> str:
-    """
-    Build an HTML table label representing the node's chessboard and stats.
-
-    The label combines an 8x8 board with Unicode chess glyphs and a stats row
-    containing move, visit count, Q value, and prior P.
-
-    :param node: MCTSNode with a .board attribute and stats (move, visit_count, prior_est)
-    :return: HTML label string for Graphviz
-    """
-    # Unicode characters for chess pieces (Standard FEN mapping)
-    PIECE_UNICODE = {
-        'p': '&#9823;', 'n': '&#9822;', 'b': '&#9821;', 'r': '&#9820;', 'q': '&#9819;', 'k': '&#9818;',
-        'P': '&#9817;', 'N': '&#9816;', 'B': '&#9815;', 'R': '&#9814;', 'Q': '&#9813;', 'K': '&#9812;',
-    }
-
-    # Determine the color of the square based on rank/file
-    def get_square_color(rank_idx, file_idx):
-        if (rank_idx + file_idx) % 2 == 0:
-            return "#EAD8C1"  # Light square
-        else:
-            return "#B58863"  # Dark square
-
-    fen_parts = node.board.fen().split(' ')
-    piece_placement = fen_parts[0]
-
-    html_rows = []
-    rank_idx = 0
-    file_idx = 0
-    current_row_html = ''
-
-    for char in piece_placement:
-        if char == '/':
-            html_rows.append(current_row_html)
-            current_row_html = ''
-            rank_idx += 1
-            file_idx = 0
-            continue
-
-        if char.isdigit():
-            num_empty = int(char)
-            for _ in range(num_empty):
-                bg_color = get_square_color(rank_idx, file_idx)
-                current_row_html += f'<TD BGCOLOR="{bg_color}" WIDTH="20" HEIGHT="20">&nbsp;</TD>'
-                file_idx += 1
-        else:
-            piece_char = PIECE_UNICODE.get(char, '')
-            bg_color = get_square_color(rank_idx, file_idx)
-            # Ensure piece is vertically centered
-            current_row_html += f'<TD BGCOLOR="{bg_color}" WIDTH="20" HEIGHT="20" VALIGN="MIDDLE"><FONT POINT-SIZE="18">{piece_char}</FONT></TD>'
-            file_idx += 1
-
-    html_rows.append(current_row_html)
-
-    html_table = f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0">'
-    for row_html in html_rows:
-        html_table += f'<TR>{row_html}</TR>'
-
-    html_table += '</TABLE>>'
-    return html_table
-
-
-def to_graph_data(node, node_id: int = 0, graph_data: dict = None) -> tuple:
-    """
-    Recursively collect nodes and edges to represent the MCTS tree in Graphviz.
-
-    :param node: Current MCTSNode being serialized
-    :param node_id: Integer id to assign to this node
-    :param graph_data: Accumulator dict with 'nodes' and 'edges' lists
-    :return: Tuple (graph_data, next_available_id)
-    """
-    if graph_data is None:
-        graph_data = {'nodes': [], 'edges': []}
-
-    html_label = get_html_board_label(node)
-
-    graph_data['nodes'].append({
-        'id': node_id,
-        'label': html_label,
-        'fillcolor': 'white',
-        'style': 'filled',
-        'shape': 'box',
-    })
-
-    next_node_id = node_id + 1
-
-    for move, (child, est) in node.children.items():
-        if child is not None:
-            child_id = next_node_id
-
-            child_visits = child.visit_count
-
-            graph_data['edges'].append({
-                'source': node_id,
-                'target': child_id,
-                'penwidth': 1 + child_visits / (node.visit_count + 1) * 3,
-            })
-
-            # Recurse to children
-            graph_data, next_node_id = to_graph_data(child, child_id, graph_data)
-
-    return graph_data, next_node_id
-
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        num_workers=os.cpu_count(),
+        pin_memory=device == 'cuda',
+        persistent_workers=True,
+        prefetch_factor=2,
+    )
+    return train_loader, test_loader
 
 if __name__ == "__main__":
-    pass
+    print(get_random_states(100, 15))

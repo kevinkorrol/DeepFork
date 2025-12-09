@@ -1,129 +1,10 @@
 import datetime
-import math
 import torch
-from torch.utils.data import DataLoader, IterableDataset
-import torch.nn as nn
-from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-
 from model import DeepForkNet
-import os
-
 from data_preprocessing import get_project_root
-
-
-class ChessDataset(IterableDataset):
-    """Iterable dataset over saved tensor shards produced by preprocessing.
-
-    :param processed_dir: Directory containing .pt shard files
-    :param samples_per_file: Number of samples in each shard file
-    :param n_samples: Optional cap on total samples (used to limit files)
-    :param files: Optional explicit list of files to iterate over
-    """
-    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, state_step: int = 1, files=None):
-        if files is not None:
-            self.files = files
-        else:
-            if n_samples is None:
-                self.files = sorted(Path(processed_dir).glob("*.pt"))
-            else:
-                self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
-        self.samples_per_file = samples_per_file
-        self.count = 0
-        self.state_step = state_step
-        print(f"Dataset initialized with {len(self.files)} files")
-
-    def _yield_file(self, path):
-        """Yield samples (state, action) from a single shard file.
-
-        :param path: Path to a .pt file saved during preprocessing
-        :yield: Tuples (state: FloatTensor, action: LongTensor)
-        """
-        data = torch.load(path)
-        for sample in data:
-            self.count += 1
-            if self.count % self.state_step:
-                yield (
-                    torch.tensor(sample["state"], dtype=torch.float32),
-                    torch.tensor(sample["action"], dtype=torch.long),
-                    torch.tensor(sample["game_id"], dtype=torch.long),
-                    torch.tensor(sample["game_result"], dtype=torch.float32)
-                )
-
-    def __len__(self):
-        """Approximate dataset length across all shard files."""
-        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
-
-    def __iter__(self):
-        """Iterate over samples, sharded across DataLoader workers if any."""
-        worker_info = torch.utils.data.get_worker_info()
-
-        if worker_info is None:
-            files = self.files
-        else:
-            num_workers = worker_info.num_workers
-            worker_id = worker_info.id
-            files = self.files[worker_id::num_workers]
-
-        for f in files:
-            yield from self._yield_file(f)
-
-
-class PolicyLoss(nn.Module):
-    """Cross-entropy loss wrapper for policy head outputs."""
-    def __init__(self):
-        super().__init__()
-        self.policy_loss_fn = nn.CrossEntropyLoss()
-
-    def forward(self, policy_probs, policy_target):
-        """Compute cross-entropy between logits and target action indices."""
-        loss = self.policy_loss_fn(policy_probs, policy_target)
-        return loss
-
-
-class ValueLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.value_loss_fn = nn.MSELoss()
-
-    def forward(self, value_est, value_target):
-        loss = self.value_loss_fn(value_est, value_target)
-        return loss
-
-
-def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir):
-    all_files = sorted(Path(processed_dir).glob("*.pt"))
-    if n_samples is not None:
-        all_files = all_files[:math.ceil(n_samples / samples_per_file)]
-
-    n_test = max(1, int(len(all_files) * test_split))
-    train_files = all_files[:-n_test]
-    test_files = all_files[-n_test:]
-
-    print(f"Train files: {len(train_files)}, test files: {len(test_files)}")
-
-    train_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=train_files)
-    test_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=test_files)
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        num_workers=os.cpu_count(),
-        pin_memory=device == 'cuda',
-        persistent_workers=True,
-        prefetch_factor=4,
-    )
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        num_workers=os.cpu_count(),
-        pin_memory=device == 'cuda',
-        persistent_workers=True,
-        prefetch_factor=2,
-    )
-    return train_loader, test_loader
+from utils.model_utils import PolicyLoss, ValueLoss, get_data_loaders
 
 
 def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
@@ -145,7 +26,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
     :return: (train_loss_hist, test_loss_hist, train_acc_hist, test_acc_hist)
     """
     
-    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir)
+    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir, model_head)
 
     train_history = []
     train_accuracy_history = []
@@ -164,7 +45,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
         train_batches = 0
         train_samples = 0
         train_hits = 0
-        for state, action, _, _ in tqdm(train_loader, unit="batch", total=total_len*(1 - test_split)):
+        for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - test_split)):
             state = state.to(device)
             policy_targets = action.to(device)
 
@@ -193,7 +74,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
         test_samples = 0
         test_hits = 0
         with torch.no_grad():
-            for state, action, _, _ in tqdm(test_loader, unit="batch", total=total_len*test_split):
+            for state, action in tqdm(test_loader, unit="batch", total=total_len*test_split):
                 state = state.to(device)
                 policy_targets = action.to(device)
 
@@ -225,8 +106,9 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
 
 
 def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
-                       n_samples=None, test_split=0.2, state_step=15):
-    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir)
+                       n_samples=None, test_split=0.05, min_diff=15):
+    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split,
+                                                 processed_dir, model_head, min_diff)
 
     train_history = []
     test_history = []
@@ -241,8 +123,9 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         model.train()
         training_loss = 0.0
         train_batches = 0
-        for state, _, game_id, game_result in tqdm(train_loader, unit="batch", total=total_len * (1 - test_split)):
+        for state, game_result in tqdm(train_loader, unit="batch", total=total_len * (1 - test_split)):
             state = state.to(device)
+            game_result = game_result.to(device)
 
             optimizer.zero_grad()
             value_est = model(state)
@@ -260,11 +143,12 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         test_loss = 0
         test_batches = 0
         with torch.no_grad():
-            for state, _, game_id, game_result in tqdm(test_loader, unit="batch", total=total_len * test_split):
+            for state, game_result in tqdm(test_loader, unit="batch", total=total_len * test_split):
                 state = state.to(device)
+                game_result = game_result.to(device)
 
-                policy_probs = model(state)
-                loss = criterion(policy_probs, game_result)
+                value_est = model(state)
+                loss = criterion(value_est, game_result)
 
                 test_loss += loss.item()
                 test_batches += 1
@@ -282,11 +166,11 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
 
 if __name__ == "__main__":
 
-    epochs = 20
+    epochs = 10
     n_samples = None
     batch_size = 512
     depth = 5
-    filter_count = 128
+    filter_count = 256
     history_size = 1
     model_head = "policy"
 
@@ -315,7 +199,7 @@ if __name__ == "__main__":
             batch_size,
             device=device,
             n_samples=n_samples,
-            state_step=15
+            min_diff=15
         )
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
@@ -328,25 +212,22 @@ if __name__ == "__main__":
     ax1.grid(True)
     ax1.legend()
 
-    ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
-    ax2.plot(test_accuracy_history, marker='s', label="testidation Accuracy")
-    ax2.set_xlabel("Epoch")
-    ax2.set_ylabel("Accuracy")
-    ax2.set_title("Training and testidation Accuracy Over Epochs")
-    ax2.grid(True)
-    ax2.legend()
+    if model_head == "policy":
+        ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
+        ax2.plot(test_accuracy_history, marker='s', label="testidation Accuracy")
+        ax2.set_xlabel("Epoch")
+        ax2.set_ylabel("Accuracy")
+        ax2.set_title("Training and testidation Accuracy Over Epochs")
+        ax2.grid(True)
+        ax2.legend()
 
-    plt.tight_layout()
+        plt.tight_layout()
 
     output_dir = root / "model_data"
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"Metrics_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
+    filename = f"Metrics_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d-%h-%m')}.png"
     plt.savefig(output_dir / filename)
 
-    # Save the accuracy plot
-    filename_acc = f"Accuracy_vs_Epoch_{datetime.datetime.today().strftime('%Y-%m-%d')}.png"
-    plt.savefig(output_dir / filename_acc)
-
     save_path = root / "models" / "checkpoints"
-    model_name = f"{'all' if n_samples is None else n_samples}_samples__{depth}_depth__{filter_count}_filters__{history_size}_history_size.pt"
+    model_name = f"{model_head}__{'all' if n_samples is None else n_samples}_samples__{depth}_depth__{filter_count}_filters__{history_size}_history_size.pt"
     torch.save(model.state_dict(), save_path / model_name)
