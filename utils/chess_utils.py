@@ -19,10 +19,20 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int, game_id: int) -> l
     """
     current_board = game.board()
     state_history = np.zeros((history_count, 14, 8, 8), dtype=np.float32)
-    seen_states = {get_state_hash(current_board): 1}
+    seen_states = {}
     samples = []
+    result_str = game.headers.get("Result", "*")
+    if result_str == "1-0":
+        result = 1
+    elif result_str == "0-1":
+        result = -1
+    else:
+        result = 0
 
-    for move in game.mainline_moves():
+    moves = list(game.mainline_moves())
+    num_moves = len(moves)
+
+    for move in moves:
         action = move_to_action(move, current_board.turn)
         state = state_to_tensor(state_history, current_board, seen_states, history_count)
         current_board.push(move)
@@ -30,10 +40,15 @@ def game_to_tensors(game: chess.pgn.Game, history_count: int, game_id: int) -> l
         sample = {
             "state": state.astype(np.float32),
             "action": action,
-            "game_id": game_id
+            "game_id": game_id,
+            "game_length": num_moves,
+            "result": result
         }
 
         samples.append(sample)
+
+        # Switch result sign to match the player turn
+        result *= -1
 
     return samples
 
@@ -241,8 +256,15 @@ def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
     :param board: Current board state
     :return: np.ndarray of shape (1, 8, 8)
     """
+    should_flip = (board.turn == chess.BLACK)
+
+    if should_flip:
+        oriented_board = board.transform(chess.flip_vertical)
+        oriented_board.turn = chess.WHITE
+    else:
+        oriented_board = board
     plane = np.zeros((1, 8, 8), dtype=np.float32)
-    for move in board.legal_moves:
+    for move in oriented_board.legal_moves:
         to_square = move.to_square
         rank = to_square // 8
         file = to_square % 8

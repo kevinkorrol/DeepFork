@@ -89,7 +89,7 @@ def save_all_games_in_files(samples_per_file, n_games, history_count) -> None:
             buffer = buffer[samples_per_file:]
 
     if buffer:
-        torch.save(buffer, processed_dir / f"games_{file_idx:03d}.pt")
+        torch.save(buffer, processed_dir / f"games_{file_idx:05d}.pt")
 
 
 def filter_games(min_elo: int = 2400, min_half_moves: int = 30) -> None:

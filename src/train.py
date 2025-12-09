@@ -21,7 +21,7 @@ class ChessDataset(IterableDataset):
     :param n_samples: Optional cap on total samples (used to limit files)
     :param files: Optional explicit list of files to iterate over
     """
-    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, files=None):
+    def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int, state_step: int = 1, files=None):
         if files is not None:
             self.files = files
         else:
@@ -31,6 +31,7 @@ class ChessDataset(IterableDataset):
                 self.files = sorted(Path(processed_dir).glob("*.pt"))[:math.ceil(n_samples / samples_per_file)]
         self.samples_per_file = samples_per_file
         self.count = 0
+        self.state_step = state_step
         print(f"Dataset initialized with {len(self.files)} files")
 
     def _yield_file(self, path):
@@ -42,10 +43,13 @@ class ChessDataset(IterableDataset):
         data = torch.load(path)
         for sample in data:
             self.count += 1
-            yield (
-                torch.tensor(sample["state"], dtype=torch.float32),
-                torch.tensor(sample["action"], dtype=torch.long)
-            )
+            if self.count % self.state_step:
+                yield (
+                    torch.tensor(sample["state"], dtype=torch.float32),
+                    torch.tensor(sample["action"], dtype=torch.long),
+                    torch.tensor(sample["game_id"], dtype=torch.long),
+                    torch.tensor(sample["game_result"], dtype=torch.float32)
+                )
 
     def __len__(self):
         """Approximate dataset length across all shard files."""
@@ -78,37 +82,29 @@ class PolicyLoss(nn.Module):
         return loss
 
 
+class ValueLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.value_loss_fn = nn.MSELoss()
 
-def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
-                n_samples=None, val_split=0.2):
-    """Train the policy network on preprocessed chess move data.
+    def forward(self, value_est, value_target):
+        loss = self.value_loss_fn(value_est, value_target)
+        return loss
 
-    Splits shard files into train/validation, streams batches with DataLoader,
-    and returns loss/accuracy histories for both splits.
 
-    :param model: Instance of `DeepForkNet`
-    :param processed_dir: Directory with processed .pt shard files
-    :param epochs: Number of epochs to train
-    :param batch_size: Global batch size
-    :param lr: Learning rate for Adam optimizer
-    :param device: 'cuda' or 'cpu'
-    :param samples_per_file: Number of samples stored per shard file
-    :param n_samples: Optional cap on number of samples used from the dataset
-    :param val_split: Fraction of shard files used for validation (0..1)
-    :return: (train_loss_hist, val_loss_hist, train_acc_hist, val_acc_hist)
-    """
+def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir):
     all_files = sorted(Path(processed_dir).glob("*.pt"))
     if n_samples is not None:
         all_files = all_files[:math.ceil(n_samples / samples_per_file)]
 
-    n_val = max(1, int(len(all_files) * val_split))
-    train_files = all_files[:-n_val]
-    val_files = all_files[-n_val:]
+    n_test = max(1, int(len(all_files) * test_split))
+    train_files = all_files[:-n_test]
+    test_files = all_files[-n_test:]
 
-    print(f"Train files: {len(train_files)}, Val files: {len(val_files)}")
+    print(f"Train files: {len(train_files)}, test files: {len(test_files)}")
 
     train_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=train_files)
-    val_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=val_files)
+    test_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=test_files)
 
     train_loader = DataLoader(
         train_dataset,
@@ -119,19 +115,42 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         prefetch_factor=4,
     )
 
-    val_loader = DataLoader(
-        val_dataset,
+    test_loader = DataLoader(
+        test_dataset,
         batch_size=batch_size,
         num_workers=os.cpu_count(),
         pin_memory=device == 'cuda',
         persistent_workers=True,
         prefetch_factor=2,
     )
+    return train_loader, test_loader
+
+
+def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
+                       n_samples=None, test_split=0.2):
+    """Train the policy network on preprocessed chess move data.
+
+    Splits shard files into train/testidation, streams batches with DataLoader,
+    and returns loss/accuracy histories for both splits.
+
+    :param model: Instance of `DeepForkNet`
+    :param processed_dir: Directory with processed .pt shard files
+    :param epochs: Number of epochs to train
+    :param batch_size: Global batch size
+    :param lr: Learning rate for Adam optimizer
+    :param device: 'cuda' or 'cpu'
+    :param samples_per_file: Number of samples stored per shard file
+    :param n_samples: Optional cap on number of samples used from the dataset
+    :param test_split: Fraction of shard files used for testidation (0..1)
+    :return: (train_loss_hist, test_loss_hist, train_acc_hist, test_acc_hist)
+    """
+    
+    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir)
 
     train_history = []
     train_accuracy_history = []
-    val_history = []
-    val_accuracy_history = []
+    test_history = []
+    test_accuracy_history = []
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = PolicyLoss()
@@ -145,7 +164,7 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         train_batches = 0
         train_samples = 0
         train_hits = 0
-        for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - val_split)):
+        for state, action, _, _ in tqdm(train_loader, unit="batch", total=total_len*(1 - test_split)):
             state = state.to(device)
             policy_targets = action.to(device)
 
@@ -168,41 +187,97 @@ def train_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='
         train_history.append(avg_train_loss)
         train_accuracy_history.append(avg_train_accuracy)
 
-        model.eval()
-        val_loss = 0
-        val_batches = 0
-        val_samples = 0
-        val_hits = 0
+        model.etest()
+        test_loss = 0
+        test_batches = 0
+        test_samples = 0
+        test_hits = 0
         with torch.no_grad():
-            for state, action in tqdm(val_loader, unit="batch", total=total_len*val_split):
+            for state, action, _, _ in tqdm(test_loader, unit="batch", total=total_len*test_split):
                 state = state.to(device)
                 policy_targets = action.to(device)
 
                 policy_probs = model(state)
                 loss = criterion(policy_probs, policy_targets)
 
-                val_loss += loss.item()
-                val_batches += 1
-                val_samples += policy_targets.size(0)
+                test_loss += loss.item()
+                test_batches += 1
+                test_samples += policy_targets.size(0)
 
                 predicted_action = torch.argmax(policy_probs, dim=1)
                 correct_predictions = (predicted_action == policy_targets).sum().item()
-                val_hits += correct_predictions
+                test_hits += correct_predictions
 
-        avg_val_loss = val_loss / val_batches
-        avg_val_accuracy = val_hits / val_samples
-        val_accuracy_history.append(avg_val_accuracy)
-        val_history.append(avg_val_loss)
+        avg_test_loss = test_loss / test_batches
+        avg_test_accuracy = test_hits / test_samples
+        test_accuracy_history.append(avg_test_accuracy)
+        test_history.append(avg_test_loss)
 
         print(
             f"Epoch {epoch + 1}/{epochs} "
             f"Train loss: {avg_train_loss:.4f} "
-            f"Val loss: {avg_val_loss:.4f} "
+            f"test loss: {avg_test_loss:.4f} "
             f"Train accuracy: {avg_train_accuracy:.4f} "
-            f"Val accuracy: {avg_val_accuracy:.4f}"
+            f"test accuracy: {avg_test_accuracy:.4f}"
         )
 
-    return train_history, val_history, train_accuracy_history, val_accuracy_history
+    return train_history, test_history, train_accuracy_history, test_accuracy_history
+
+
+def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
+                       n_samples=None, test_split=0.2, state_step=15):
+    train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split, processed_dir)
+
+    train_history = []
+    test_history = []
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    criterion = ValueLoss()
+    model.to(device)
+
+    total_len = n_samples // batch_size if n_samples is not None else len(train_loader) // batch_size
+
+    for epoch in range(epochs):
+        model.train()
+        training_loss = 0.0
+        train_batches = 0
+        for state, _, game_id, game_result in tqdm(train_loader, unit="batch", total=total_len * (1 - test_split)):
+            state = state.to(device)
+
+            optimizer.zero_grad()
+            value_est = model(state)
+            loss = criterion(value_est, game_result)
+            loss.backward()
+            optimizer.step()
+
+            training_loss += loss.item()
+            train_batches += 1
+
+        avg_train_loss = training_loss / train_batches
+        train_history.append(avg_train_loss)
+
+        model.etest()
+        test_loss = 0
+        test_batches = 0
+        with torch.no_grad():
+            for state, _, game_id, game_result in tqdm(test_loader, unit="batch", total=total_len * test_split):
+                state = state.to(device)
+
+                policy_probs = model(state)
+                loss = criterion(policy_probs, game_result)
+
+                test_loss += loss.item()
+                test_batches += 1
+        avg_test_loss = test_loss / test_batches
+        test_history.append(avg_test_loss)
+
+        print(
+            f"Epoch {epoch + 1}/{epochs} "
+            f"Train loss: {avg_train_loss:.4f} "
+            f"test loss: {avg_test_loss:.4f} "
+        )
+
+        return train_history, test_history
 
 
 if __name__ == "__main__":
@@ -213,32 +288,51 @@ if __name__ == "__main__":
     depth = 5
     filter_count = 128
     history_size = 1
+    model_head = "policy"
 
     if torch.cuda.is_available():
         device = "cuda"
     else:
         device = 'cpu'
     torch.manual_seed(283)
-    model = DeepForkNet(depth, filter_count, history_size)
+    model = DeepForkNet(model_head, depth, filter_count, history_size)
     root = get_project_root()
     processed_dir = root / "data" / "processed"
-    train_loss_history, val_loss_history, train_accuracy_history, val_accuracy_history = train_model(model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
+    if model_head == "policy":
+        train_loss_history, test_loss_history, train_accuracy_history, test_accuracy_history = train_policy_model(
+            model,
+            processed_dir,
+            epochs,
+            batch_size,
+            device=device,
+            n_samples=n_samples
+        )
+    elif model_head == "value":
+        train_loss_history, test_loss_history = train_value_model(
+            model,
+            processed_dir,
+            epochs,
+            batch_size,
+            device=device,
+            n_samples=n_samples,
+            state_step=15
+        )
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
     ax1.plot(train_loss_history, marker='o', label="Train Loss")
-    ax1.plot(val_loss_history, marker='s', label="Validation Loss")
+    ax1.plot(test_loss_history, marker='s', label="testidation Loss")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title("Training and Validation Loss Over Epochs")
+    ax1.set_title("Training and testidation Loss Over Epochs")
     ax1.grid(True)
     ax1.legend()
 
     ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
-    ax2.plot(val_accuracy_history, marker='s', label="Validation Accuracy")
+    ax2.plot(test_accuracy_history, marker='s', label="testidation Accuracy")
     ax2.set_xlabel("Epoch")
     ax2.set_ylabel("Accuracy")
-    ax2.set_title("Training and Validation Accuracy Over Epochs")
+    ax2.set_title("Training and testidation Accuracy Over Epochs")
     ax2.grid(True)
     ax2.legend()
 

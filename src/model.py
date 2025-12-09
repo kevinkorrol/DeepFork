@@ -50,13 +50,11 @@ class ResBlock(nn.Module):
         return F.relu(data)
 
 
-class OutBlock(nn.Module):
+class PolicyOutBlock(nn.Module):
     """Output heads: scalar value and flattened policy logits over 73x8x8."""
 
     def __init__(self, filter_count=256):
-        super(OutBlock, self).__init__()
-
-        # Policy head
+        super(PolicyOutBlock, self).__init__()
         self.convP = nn.Conv2d(filter_count, 73, 1)
         self.bnP = nn.BatchNorm2d(73)
 
@@ -66,11 +64,27 @@ class OutBlock(nn.Module):
         :return: policy_log_probs
         """
 
-        # Policy head
         p = self.bnP(self.convP(data))
         p = p.view(p.size(0), -1)
 
         return p
+
+
+class ValueOutBlock(nn.Module):
+    def __init__(self, filter_count=256):
+        super(ValueOutBlock, self).__init__()
+        self.convV = nn.Conv2d(filter_count, 1, 1)
+        self.bnV = nn.BatchNorm2d(1)
+        self.lnV1 = nn.Linear(8 * 8, 256)
+        self.lnV2 = nn.Linear(256, 1)
+
+    def forward(self, data):
+        v = F.relu(self.bnV(self.convV(data)))
+        v = F.relu(self.lnV1(v.view(-1, 8 * 8)))
+        v = self.lnV2(v).tanh()
+
+        return v
+
 
 
 class DeepForkNet(nn.Module):
@@ -82,13 +96,16 @@ class DeepForkNet(nn.Module):
     :param history_size: Number of historical board states encoded in input
     """
 
-    def __init__(self, depth=5, filter_count=128, history_size=1):
+    def __init__(self, head: str, depth=5, filter_count=128, history_size=1):
         super(DeepForkNet, self).__init__()
         self.filter_count = filter_count
         self.depth = depth
         self.conv_block = ConvBlock(history_size=history_size, filter_count=filter_count)
         self.res_blocks = nn.ModuleList([ResBlock(filter_count) for _ in range(depth)])
-        self.out_block = OutBlock(filter_count=filter_count)
+        if head == "policy":
+            self.out_block = PolicyOutBlock(filter_count=filter_count)
+        else:
+            self.out_block = ValueOutBlock(filter_count=filter_count)
 
     def forward(self, data):
         """
