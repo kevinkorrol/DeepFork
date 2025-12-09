@@ -75,7 +75,8 @@ class ChessDataset(IterableDataset):
             for sample in data:
                 yield (
                     torch.tensor(sample["state"], dtype=torch.float32),
-                    torch.tensor(sample["action"], dtype=torch.long)
+                    torch.tensor(sample["action"], dtype=torch.long),
+                    torch.tensor(sample["result"], dtype=torch.float32)
                 )
 
     def __len__(self):
