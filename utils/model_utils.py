@@ -65,7 +65,7 @@ class ChessDataset(IterableDataset):
                 if game_state_idx in idxs:
                     yield (
                         torch.tensor(sample["state"], dtype=torch.float32),
-                        torch.tensor(sample["game_result"], dtype=torch.float32)
+                        torch.tensor(sample["result"], dtype=torch.float32)
                     )
                 game_state_idx += 1
         elif self.model_head == "policy":
