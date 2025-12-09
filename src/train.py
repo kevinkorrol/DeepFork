@@ -68,7 +68,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
         train_history.append(avg_train_loss)
         train_accuracy_history.append(avg_train_accuracy)
 
-        model.etest()
+        model.eval()
         test_loss = 0
         test_batches = 0
         test_samples = 0
@@ -139,7 +139,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         avg_train_loss = training_loss / train_batches
         train_history.append(avg_train_loss)
 
-        model.etest()
+        model.eval()
         test_loss = 0
         test_batches = 0
         with torch.no_grad():
@@ -205,19 +205,19 @@ if __name__ == "__main__":
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
     ax1.plot(train_loss_history, marker='o', label="Train Loss")
-    ax1.plot(test_loss_history, marker='s', label="testidation Loss")
+    ax1.plot(test_loss_history, marker='s', label="Test Loss")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title("Training and testidation Loss Over Epochs")
+    ax1.set_title("Training and test Loss Over Epochs")
     ax1.grid(True)
     ax1.legend()
 
     if model_head == "policy":
         ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
-        ax2.plot(test_accuracy_history, marker='s', label="testidation Accuracy")
+        ax2.plot(test_accuracy_history, marker='s', label="Test Accuracy")
         ax2.set_xlabel("Epoch")
         ax2.set_ylabel("Accuracy")
-        ax2.set_title("Training and testidation Accuracy Over Epochs")
+        ax2.set_title("Training and test Accuracy Over Epochs")
         ax2.grid(True)
         ax2.legend()
 
