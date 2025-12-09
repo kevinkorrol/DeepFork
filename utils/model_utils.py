@@ -19,7 +19,10 @@ def get_random_states(game_len: int, min_diff: int, num_states: int = 20) -> lis
         if min_idx >= game_len:
             return idxs
         max_idx = min(min_idx + part, game_len - 1)
-        rand_idx = random.randrange(min_idx, max_idx)
+        if max_idx <= min_idx:
+            rand_idx = min_idx
+        else:
+            rand_idx = random.randrange(min_idx, max_idx)
         idxs.append(rand_idx)
         prev_idx = rand_idx
 
