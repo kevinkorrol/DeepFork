@@ -146,7 +146,9 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
             train_samples += state.size(0)
 
         avg_train_loss = training_loss / train_batches
+        avg_train_accuracy = train_hits / train_samples
         train_history.append(avg_train_loss)
+        train_accuracy_history.append(avg_train_accuracy)
 
         model.eval()
         test_loss = 0
@@ -154,7 +156,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         test_hits = 0
         test_samples = 0
         with torch.no_grad():
-            for state, _, game_result in tqdm(test_loader, unit="batch"):
+            for state, game_result in tqdm(test_loader, unit="batch"):
                 state = state.to(device)
                 game_result = game_result.to(device)
 
@@ -169,12 +171,16 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
                 test_hits += correct
                 test_samples += state.size(0)
         avg_test_loss = test_loss / test_batches
+        avg_test_accuracy = test_hits / test_samples
         test_history.append(avg_test_loss)
+        test_accuracy_history.append(avg_test_accuracy)
 
         print(
             f"Epoch {epoch + 1}/{epochs} "
             f"Train loss: {avg_train_loss:.4f} "
             f"test loss: {avg_test_loss:.4f} "
+            f"Train accuracy: {avg_train_accuracy:.4f} "
+            f"test accuracy: {avg_test_accuracy:.4f}"
         )
 
     return train_history, test_history, train_accuracy_history, test_accuracy_history
