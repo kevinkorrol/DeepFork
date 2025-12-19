@@ -16,7 +16,7 @@ class ChessDataset(IterableDataset):
     :param files: Optional explicit list of files to iterate over
     """
     def __init__(self, processed_dir: str, samples_per_file: int, n_samples: int,
-                 model_head: str, files=None, buffer_size=10_000):
+                 model_head: str, files=None, buffer_size=10_000, num_samples=20):
         if files is not None:
             self.files = files
         else:
@@ -27,13 +27,14 @@ class ChessDataset(IterableDataset):
         self.samples_per_file = samples_per_file
         self.model_head = model_head
         self.buffer_size = buffer_size
+        self.num_samples = num_samples
         self.buffer_size_per_class = buffer_size // 3
 
-    def _get_random_indices(self, game_length, num_samples=10):
+    def _get_random_indices(self, game_length):
         """Pick N random unique indices from the game."""
         if game_length <= 0: return []
         # Ensure we don't try to pick more samples than exist
-        k = min(num_samples, game_length)
+        k = min(self.num_samples, game_length)
         return set(random.sample(range(game_length), k))
 
     def _get_samples_from_file(self, data):
@@ -47,7 +48,7 @@ class ChessDataset(IterableDataset):
             samples_by_game[game_id].append(sample)
 
         for game_id, samples in samples_by_game.items():
-            indices = self._get_random_indices(len(samples), num_samples=10)
+            indices = self._get_random_indices(len(samples))
             for idx in indices:
                 selected_samples.append(samples[idx])
 

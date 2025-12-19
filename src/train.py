@@ -188,12 +188,14 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
 
 if __name__ == "__main__":
 
-    epochs = 5
+    epochs = 10
     n_samples = None
     batch_size = 512
-    depth = 4
-    filter_count = 128
+    depth = 5
+    filter_count = 256
     history_size = 1
+    num_samples = 20
+    buffer_size = 50_000
     model_head = "value"
 
     if torch.cuda.is_available():
