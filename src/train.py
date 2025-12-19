@@ -161,7 +161,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
                 state = state.to(device)
                 target_indices = (game_result + 1).long().to(device)
 
-                value_logits = model(state).squeeze(-1)
+                value_logits = model(state)
                 loss = criterion(value_logits, game_result)
 
                 test_loss += loss.item()

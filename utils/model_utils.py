@@ -161,7 +161,7 @@ class ValueLoss(nn.Module):
         self.loss = nn.CrossEntropyLoss()
 
     def forward(self, value_est, value_target):
-        return self.loss(value_est.view(-1), value_target)
+        return self.loss(value_est, value_target)
 
 
 def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir,
