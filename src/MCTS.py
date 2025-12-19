@@ -8,7 +8,7 @@ leverages policy and value estimates from the DeepForkNet model to guide search.
 from __future__ import annotations
 from utils.chess_utils import state_to_tensor, update_history, get_move_distribution
 from model import DeepForkNet
-from utils.model_utils import visualize_mcts_graph
+from utils.MCTS_visualization import visualize_mcts_graph
 
 import math
 import torch
@@ -246,7 +246,7 @@ def MCTS(
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
-        c_puct: float = 1, # The bigger, the more it relies on net prediction
+        c_puct: float = 2, # The bigger, the more it relies on net prediction
         history_count: int = 1
 ) -> chess.Move:
     """

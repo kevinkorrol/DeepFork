@@ -26,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash, state_to_tensor, get_move_distribution
 
 BOARD_SIZE = 600
-NUM_SIM = 60
+NUM_SIM = 50
 
 
 class ChessUI(App):
@@ -165,24 +165,24 @@ class ChessUI(App):
         if self.board.turn != agent_is_white or self.board.is_game_over() or self.board.halfmove_clock >= 200:
             return
 
-        # state_tensor = state_to_tensor(self.history, self.board, self.states, self.history_count)
-        # state_tensor = torch.from_numpy(state_tensor).float().to('cpu')
-        # logits = self.model(state_tensor)
-        # logits = logits.detach().to('cpu').numpy().reshape(-1)
-        # distr = get_move_distribution(logits, self.board)
-        # distr = sorted(distr.items(), key=lambda item: item[1], reverse=True)
-        # print("\n".join(f"{move} {float(pred)}" for move, pred in distr))
-        # clanker_move = distr[0][0]
+        state_tensor = state_to_tensor(self.history, self.board, self.states, self.history_count)
+        state_tensor = torch.from_numpy(state_tensor).float().to('cpu')
+        logits = self.model(state_tensor)
+        logits = logits.detach().to('cpu').numpy().reshape(-1)
+        distr = get_move_distribution(logits, self.board)
+        distr = sorted(distr.items(), key=lambda item: item[1], reverse=True)
+        print("\n".join(f"{move} {float(pred)}" for move, pred in distr))
+        clanker_move = distr[0][0]
 
-        clanker_move = MCTS(
-            self.board,
-            NUM_SIM,
-            self.model,
-            'cpu',
-            seen_states=self.states,
-            state_history=self.history,
-            history_count=self.history_count
-        )
+        # clanker_move = MCTS(
+        #     self.board,
+        #     NUM_SIM,
+        #     self.model,
+        #     'cpu',
+        #     seen_states=self.states,
+        #     state_history=self.history,
+        #     history_count=self.history_count
+        # )
 
         self.board.push(clanker_move)
         self.cb.board = self.board
@@ -198,6 +198,6 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=5, filter_count=128, history_size=1)
-    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/all_samples__5_depth__128_filters__1_history_size.pt", map_location='cpu'))
+    model = DeepForkNet(depth=5, filter_count=256, history_size=1, head="policy")
+    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/policy__all_samples__5_depth__256_filters__1_history_size.pt", map_location='cpu'))
     ChessUI('w', model, history_count=1).run()

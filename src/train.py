@@ -45,7 +45,7 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
         train_batches = 0
         train_samples = 0
         train_hits = 0
-        for state, action, _ in tqdm(train_loader, unit="batch", total=total_len*(1 - test_split)):
+        for state, action in tqdm(train_loader, unit="batch", total=total_len*(1 - test_split)):
             state = state.to(device)
             policy_targets = action.to(device)
 
@@ -112,6 +112,8 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
 
     train_history = []
     test_history = []
+    train_accuracy_history = []
+    test_accuracy_history = []
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = ValueLoss()
@@ -123,6 +125,8 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         model.train()
         training_loss = 0.0
         train_batches = 0
+        train_hits = 0
+        train_samples = 0
         for state, game_result in tqdm(train_loader, unit="batch"):
             state = state.to(device)
             game_result = game_result.to(device)
@@ -136,12 +140,19 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
             training_loss += loss.item()
             train_batches += 1
 
+            preds_rounded = torch.round(value_est)
+            correct = (preds_rounded == game_result).sum().item()
+            train_hits += correct
+            train_samples += state.size(0)
+
         avg_train_loss = training_loss / train_batches
         train_history.append(avg_train_loss)
 
         model.eval()
         test_loss = 0
         test_batches = 0
+        test_hits = 0
+        test_samples = 0
         with torch.no_grad():
             for state, _, game_result in tqdm(test_loader, unit="batch"):
                 state = state.to(device)
@@ -152,6 +163,11 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
 
                 test_loss += loss.item()
                 test_batches += 1
+
+                preds_rounded = torch.round(value_est)
+                correct = (preds_rounded == game_result).sum().item()
+                test_hits += correct
+                test_samples += state.size(0)
         avg_test_loss = test_loss / test_batches
         test_history.append(avg_test_loss)
 
@@ -161,7 +177,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
             f"test loss: {avg_test_loss:.4f} "
         )
 
-    return train_history, test_history
+    return train_history, test_history, train_accuracy_history, test_accuracy_history
 
 
 if __name__ == "__main__":
@@ -169,7 +185,7 @@ if __name__ == "__main__":
     epochs = 5
     n_samples = None
     batch_size = 512
-    depth = 5
+    depth = 4
     filter_count = 128
     history_size = 1
     model_head = "value"
@@ -184,23 +200,10 @@ if __name__ == "__main__":
     processed_dir = root / "data" / "processed"
     if model_head == "policy":
         train_loss_history, test_loss_history, train_accuracy_history, test_accuracy_history = train_policy_model(
-            model,
-            processed_dir,
-            epochs,
-            batch_size,
-            device=device,
-            n_samples=n_samples
-        )
+            model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
     elif model_head == "value":
-        train_loss_history, test_loss_history = train_value_model(
-            model,
-            processed_dir,
-            epochs,
-            batch_size,
-            device=device,
-            n_samples=n_samples,
-            min_diff=5
-        )
+        train_loss_history, test_loss_history, train_accuracy_history, test_accuracy_history = train_value_model(
+            model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
@@ -212,16 +215,19 @@ if __name__ == "__main__":
     ax1.grid(True)
     ax1.legend()
 
-    if model_head == "policy":
-        ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
-        ax2.plot(test_accuracy_history, marker='s', label="Test Accuracy")
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Accuracy")
-        ax2.set_title("Training and test Accuracy Over Epochs")
-        ax2.grid(True)
+    ax2.plot(train_accuracy_history, marker='o', label="Train Accuracy")
+    ax2.plot(test_accuracy_history, marker='s', label="Test Accuracy")
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylabel("Accuracy")
+    ax2.set_title("Training and test Accuracy Over Epochs")
+    ax2.grid(True)
+    ax2.legend()
+
+    if model_head == "value":
+        ax2.axhline(y=0.33, color='r', linestyle='--', label='Random Guess (33%)')
         ax2.legend()
 
-        plt.tight_layout()
+    plt.tight_layout()
 
     output_dir = root / "model_data"
     output_dir.mkdir(parents=True, exist_ok=True)

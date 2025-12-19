@@ -204,28 +204,28 @@ def get_global_planes(board: chess.Board) -> np.ndarray:
     return global_planes
 
 
+def get_legal_moves_indices(board: chess.Board) -> tuple:
+    """
+    Returns legal moves and their corresponding action indices.
+    """
+    legal_moves = list(board.legal_moves)
+    # Get the specific indices for these moves in the same order
+    legal_moves_idx = np.array([move_to_action(move, board.turn) for move in legal_moves])
+    return legal_moves, legal_moves_idx
+
+
 def get_move_distribution(
         action_distribution: np.ndarray,
         board: chess.Board,
         temp: float = 1.0
 ) -> dict:
-    """
-    Map a full action distribution to legal moves only and normalize.
+    canonical_board = board.copy()
+    if not board.turn:
+        canonical_board.mirror()
+    legal_moves, legal_indices = get_legal_moves_indices(board)
 
-    The input `action_distribution` is over 4672 actions (73x8x8). This function
-    filters to legal moves in the given `board` and applies a softmax-like
-    normalization with temperature `temp`.
+    legal_logits = action_distribution[legal_indices]
 
-    :param action_distribution: 1D array of shape (4672,) with unnormalized scores
-    :param board: Current board state
-    :param temp: Temperature for sharpening/smoothing logits before softmax
-    :return: Dict mapping `chess.Move` to probability for all legal moves
-    """
-
-    legal_moves, move_mask = get_legal_moves_mask(board)
-    legal_logits = action_distribution[move_mask]
-
-    # Normalize it
     legal_logits = (legal_logits - np.max(legal_logits)) / temp
     exp_logits = np.exp(legal_logits)
     probs = exp_logits / exp_logits.sum()
@@ -233,20 +233,14 @@ def get_move_distribution(
     return {move: prob for move, prob in zip(legal_moves, probs)}
 
 
-def get_legal_moves_mask(board: chess.Board) -> tuple:
-    """
-    Compute a boolean mask over the 4672 actions indicating legal moves.
-
-    :param board: Current board state
-    :return: Tuple (legal_moves, move_mask) where
-             - legal_moves is a list of `chess.Move`
-             - move_mask is a boolean np.ndarray of shape (4672,)
-    """
-    legal_moves = list(board.legal_moves)
-    legal_moves_idx = np.array([move_to_action(move, board.turn) for move in legal_moves])
-    move_mask = np.zeros(4672, dtype=bool)
-    move_mask[legal_moves_idx] = True
-    return legal_moves, move_mask
+def flip_move(move: chess.Move):
+    flipped_from_sq = chess.square_mirror(move.from_square)
+    flipped_to_sq = chess.square_mirror(move.to_square)
+    return chess.Move(
+        flipped_from_sq,
+        flipped_to_sq,
+        move.promotion
+    )
 
 
 def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
@@ -273,24 +267,25 @@ def get_legal_moves_plane(board: chess.Board) -> np.ndarray:
     return plane
 
 
+DIRECTIONS = [
+    (0, 1),  # N
+    (1, 1),  # NE
+    (1, 0),  # E
+    (1, -1),  # SE
+    (0, -1),  # S
+    (-1, -1),  # SW
+    (-1, 0),  # W
+    (-1, 1)  # NW
+]
+
+KNIGHT_DIFFS = [
+    (1, 2), (2, 1), (2, -1), (1, -2),
+    (-1, -2), (-2, -1), (-2, 1), (-1, 2)
+]
+
+PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
+
 def move_to_action(move: chess.Move, turn: bool) -> int:
-    DIRECTIONS = [
-        (0, 1),  # N
-        (1, 1),  # NE
-        (1, 0),  # E
-        (1, -1),  # SE
-        (0, -1),  # S
-        (-1, -1),  # SW
-        (-1, 0),  # W
-        (-1, 1)  # NW
-    ]
-
-    KNIGHT_DIFFS = [
-        (1, 2), (2, 1), (2, -1), (1, -2),
-        (-1, -2), (-2, -1), (-2, 1), (-1, 2)
-    ]
-
-    PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
 
     from_sq = move.from_square
     to_sq = move.to_square
@@ -343,23 +338,6 @@ def move_to_action(move: chess.Move, turn: bool) -> int:
     raise ValueError(f"Move {move} not representable in current encoding.")
 
 def action_to_move(action: int) -> chess.Move:
-    DIRECTIONS = [
-        (0, 1),  # N
-        (1, 1),  # NE
-        (1, 0),  # E
-        (1, -1),  # SE
-        (0, -1),  # S
-        (-1, -1),  # SW
-        (-1, 0),  # W
-        (-1, 1)  # NW
-    ]
-
-    KNIGHT_DIFFS = [
-        (1, 2), (2, 1), (2, -1), (1, -2),
-        (-1, -2), (-2, -1), (-2, 1), (-1, 2)
-    ]
-
-    PROMO_PIECES = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
 
     plane = action // 64
     from_sq = action % 64
