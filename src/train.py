@@ -106,9 +106,9 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
 
 
 def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
-                       n_samples=None, test_split=0.01, min_diff=15):
+                       n_samples=None, test_split=0.2):
     train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split,
-                                                 processed_dir, model_head, batch_size=batch_size, device=device, min_diff=min_diff)
+                                                 processed_dir, model_head, batch_size=batch_size, device=device)
 
     train_history = []
     test_history = []

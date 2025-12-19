@@ -161,7 +161,7 @@ class ValueLoss(nn.Module):
 
 
 def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir,
-                     model_head: str, batch_size: int, device: str, min_diff: int =1, buffer_size=10_000):
+                     model_head: str, batch_size: int, device: str, buffer_size=10_000):
     all_files = sorted(Path(processed_dir).glob("*.pt"))
     if n_samples is not None:
         all_files = all_files[:math.ceil(n_samples / samples_per_file)]
