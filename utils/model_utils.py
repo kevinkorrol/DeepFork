@@ -42,9 +42,9 @@ class ChessDataset(IterableDataset):
 
         for sample in data:
             game_id = sample["game_id"]
-            if game_id in samples_by_game:
-                samples_by_game[game_id].append(sample)
-            samples_by_game[game_id] = [sample]
+            if game_id not in samples_by_game:
+                samples_by_game[game_id] = []
+            samples_by_game[game_id].append(sample)
 
         for game_id, samples in samples_by_game.items():
             indices = self._get_random_indices(len(samples), num_samples=10)
@@ -132,7 +132,7 @@ class ChessDataset(IterableDataset):
             random.shuffle(policy_buffer)
             for item in policy_buffer:
                 yield item
-        elif self.model_head == "policy":
+        elif self.model_head == "value":
             leftover = buffers[1] + buffers[0] + buffers[-1]
             random.shuffle(leftover)
             for item in leftover:
