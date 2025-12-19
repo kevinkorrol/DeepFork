@@ -72,7 +72,7 @@ class ChessDataset(IterableDataset):
         """Approximate dataset length across all shard files."""
         length = (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
         if self.model_head == "value":
-            length = length / 87 * self.num_samples
+            length = length // 87 * self.num_samples
         return length
 
     def __iter__(self):
