@@ -106,9 +106,10 @@ def train_policy_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, d
 
 
 def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, device='cuda', samples_per_file=300,
-                       n_samples=None, test_split=0.2):
+                       n_samples=None, test_split=0.2, buffer_size=10_000, num_samples=10):
     train_loader, test_loader = get_data_loaders(samples_per_file, n_samples, test_split,
-                                                 processed_dir, model_head, batch_size=batch_size, device=device)
+                                                 processed_dir, model_head, batch_size=batch_size, device=device,
+                                                 buffer_size=buffer_size, num_samples=num_samples)
 
     train_history = []
     test_history = []
@@ -211,7 +212,7 @@ if __name__ == "__main__":
             model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
     elif model_head == "value":
         train_loss_history, test_loss_history, train_accuracy_history, test_accuracy_history = train_value_model(
-            model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples)
+            model, processed_dir, epochs, batch_size, device=device, n_samples=n_samples, buffer_size=buffer_size, num_samples=num_samples)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 

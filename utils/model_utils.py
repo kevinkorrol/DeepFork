@@ -70,7 +70,10 @@ class ChessDataset(IterableDataset):
 
     def __len__(self):
         """Approximate dataset length across all shard files."""
-        return (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
+        length = (len(self.files) - 1) * self.samples_per_file + len(torch.load(self.files[-1]))
+        if self.model_head == "value":
+            length = length / 87 * self.num_samples
+        return length
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -162,7 +165,7 @@ class ValueLoss(nn.Module):
 
 
 def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, processed_dir,
-                     model_head: str, batch_size: int, device: str, buffer_size=10_000):
+                     model_head: str, batch_size: int, device: str, buffer_size=10_000, num_samples=20):
     all_files = sorted(Path(processed_dir).glob("*.pt"))
     if n_samples is not None:
         all_files = all_files[:math.ceil(n_samples / samples_per_file)]
@@ -174,9 +177,9 @@ def get_data_loaders(samples_per_file: int, n_samples: int, test_split: float, p
     print(f"Train files: {len(train_files)}, test files: {len(test_files)}")
 
     train_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=train_files,
-                                 model_head=model_head, buffer_size=buffer_size)
+                                 model_head=model_head, buffer_size=buffer_size, num_samples=num_samples)
     test_dataset = ChessDataset(processed_dir, samples_per_file, n_samples, files=test_files,
-                                model_head=model_head, buffer_size=buffer_size)
+                                model_head=model_head, buffer_size=buffer_size, num_samples=num_samples)
 
     train_loader = DataLoader(
         train_dataset,
