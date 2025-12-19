@@ -134,7 +134,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
 
             optimizer.zero_grad()
             value_logits = model(state)
-            loss = criterion(value_logits, game_result)
+            loss = criterion(value_logits, target_indices)
             loss.backward()
             optimizer.step()
 
@@ -162,7 +162,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
                 target_indices = (game_result + 1).long().to(device)
 
                 value_logits = model(state)
-                loss = criterion(value_logits, game_result)
+                loss = criterion(value_logits, target_indices)
 
                 test_loss += loss.item()
                 test_batches += 1
