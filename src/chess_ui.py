@@ -26,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash, state_to_tensor, get_move_distribution
 
 BOARD_SIZE = 600
-NUM_SIM = 50
+NUM_SIM = 600
 
 
 class ChessUI(App):
@@ -76,7 +76,7 @@ class ChessUI(App):
             # 3. Execute the move via the main UI app
             self.ui_app.execute_move(promoted_move)
 
-    def __init__(self, player_color: str, model: DeepForkNet, history_count: int, **kwargs):
+    def __init__(self, player_color: str, policy_model: DeepForkNet, value_model: DeepForkNet, history_count: int, **kwargs):
         super().__init__(**kwargs)
         self.board = chess.Board()
         self.cb = None
@@ -87,7 +87,8 @@ class ChessUI(App):
         self.history_count = history_count
         self.states = {get_state_hash(chess.Board()): 1}
         self.history = np.zeros((self.history_count, 14, 8, 8), dtype=np.float32)
-        self.model = model
+        self.policy_model = policy_model
+        self.value_model = value_model
 
 
     def build(self):
@@ -165,24 +166,25 @@ class ChessUI(App):
         if self.board.turn != agent_is_white or self.board.is_game_over() or self.board.halfmove_clock >= 200:
             return
 
-        state_tensor = state_to_tensor(self.history, self.board, self.states, self.history_count)
-        state_tensor = torch.from_numpy(state_tensor).float().to('cpu')
-        logits = self.model(state_tensor)
-        logits = logits.detach().to('cpu').numpy().reshape(-1)
-        distr = get_move_distribution(logits, self.board)
-        distr = sorted(distr.items(), key=lambda item: item[1], reverse=True)
-        print("\n".join(f"{move} {float(pred)}" for move, pred in distr))
-        clanker_move = distr[0][0]
+        # state_tensor = state_to_tensor(self.history, self.board, self.states, self.history_count)
+        # state_tensor = torch.from_numpy(state_tensor).float().to('cpu')
+        # logits = self.model(state_tensor)
+        # logits = logits.detach().to('cpu').numpy().reshape(-1)
+        # distr = get_move_distribution(logits, self.board)
+        # distr = sorted(distr.items(), key=lambda item: item[1], reverse=True)
+        # print("\n".join(f"{move} {float(pred)}" for move, pred in distr))
+        # clanker_move = distr[0][0]
 
-        # clanker_move = MCTS(
-        #     self.board,
-        #     NUM_SIM,
-        #     self.model,
-        #     'cpu',
-        #     seen_states=self.states,
-        #     state_history=self.history,
-        #     history_count=self.history_count
-        # )
+        clanker_move = MCTS(
+            self.board,
+            NUM_SIM,
+            self.policy_model,
+            self.value_model,
+            'cpu',
+            seen_states=self.states,
+            state_history=self.history,
+            history_count=self.history_count
+        )
 
         self.board.push(clanker_move)
         self.cb.board = self.board
@@ -198,6 +200,10 @@ class ChessUI(App):
 
 
 if __name__ == "__main__":
-    model = DeepForkNet(depth=5, filter_count=256, history_size=1, head="policy")
-    model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/policy__all_samples__5_depth__256_filters__1_history_size.pt", map_location='cpu'))
-    ChessUI('w', model, history_count=1).run()
+    policy_model = DeepForkNet(depth=5, filter_count=256, history_size=1, head="policy")
+    policy_model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/policy__all_samples__5_depth__256_filters__1_history_size.pt", map_location='cpu'))
+    value_model = DeepForkNet(depth=5, filter_count=256, history_size=1, head="value")
+    value_model.load_state_dict(torch.load(
+        "/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/value__all_samples__5_depth__256_filters__1_history_size.pt",
+        map_location='cpu'))
+    ChessUI('w', policy_model, value_model, history_count=1).run()

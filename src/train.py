@@ -130,19 +130,19 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         train_samples = 0
         for state, game_result in tqdm(train_loader, unit="batch"):
             state = state.to(device)
-            game_result = game_result.to(device)
+            target_indices = (game_result + 1).long().to(device)
 
             optimizer.zero_grad()
-            value_est = model(state).squeeze(-1)
-            loss = criterion(value_est, game_result)
+            value_logits = model(state)
+            loss = criterion(value_logits, game_result)
             loss.backward()
             optimizer.step()
 
             training_loss += loss.item()
             train_batches += 1
 
-            preds_rounded = torch.round(value_est)
-            correct = (preds_rounded == game_result).sum().item()
+            preds = torch.argmax(value_logits, dim=1)
+            correct = (preds == target_indices).sum().item()
             train_hits += correct
             train_samples += state.size(0)
 
@@ -159,17 +159,17 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
         with torch.no_grad():
             for state, game_result in tqdm(test_loader, unit="batch"):
                 state = state.to(device)
-                game_result = game_result.to(device)
+                target_indices = (game_result + 1).long().to(device)
 
-                value_est = model(state).squeeze(-1)
-                loss = criterion(value_est, game_result)
+                value_logits = model(state).squeeze(-1)
+                loss = criterion(value_logits, game_result)
 
                 test_loss += loss.item()
                 test_batches += 1
 
-                preds_rounded = torch.round(value_est)
-                correct = (preds_rounded == game_result).sum().item()
-                test_hits += correct
+                preds = torch.argmax(value_logits, dim=1)
+                correct = (preds == target_indices).sum().item()
+                train_hits += correct
                 test_samples += state.size(0)
         avg_test_loss = test_loss / test_batches
         avg_test_accuracy = test_hits / test_samples

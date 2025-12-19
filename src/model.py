@@ -76,15 +76,14 @@ class ValueOutBlock(nn.Module):
         self.convV = nn.Conv2d(filter_count, 1, 1)
         self.bnV = nn.BatchNorm2d(1)
         self.lnV1 = nn.Linear(1 * 8 * 8, 256)
-        self.lnV2 = nn.Linear(256, 1)
-        self.tanh = nn.Tanh()
+        self.lnV2 = nn.Linear(256, 3)
 
     def forward(self, data):
         v = F.relu(self.bnV(self.convV(data)))
         v = F.relu(self.lnV1(v.view(-1, 8 * 8)))
         v = self.lnV2(v)
 
-        return self.tanh(v)
+        return v
 
 
 

@@ -161,92 +161,114 @@ class MCTSNode:
 
     def evaluate_board_simple(self, board: chess.Board) -> float:
         """
-        Simple evaluation of the board using material balance.
-        Positive = good for White, Negative = good for Black.
-        Returns a float.
+        Evaluates the board score (White Advantage - Black Advantage).
+        Uses simplified Piece-Square Tables for positional awareness.
         """
+        # Tables from PeSTO / Simplified evaluation logic
+        # Values are for White; mirror for Black.
+        # Tables are 1D arrays of 64 squares (a1..h1, a2..h2...)
+
+        # Pawn Table (Encourages center control and advancement)
+        PAWN_PST = [
+            0, 0, 0, 0, 0, 0, 0, 0,
+            50, 50, 50, 50, 50, 50, 50, 50,
+            10, 10, 20, 30, 30, 20, 10, 10,
+            5, 5, 10, 25, 25, 10, 5, 5,
+            0, 0, 0, 20, 20, 0, 0, 0,
+            5, -5, -10, 0, 0, -10, -5, 5,
+            5, 10, 10, -20, -20, 10, 10, 5,
+            0, 0, 0, 0, 0, 0, 0, 0
+        ]
+
+        # Knight Table (Encourages center posts)
+        KNIGHT_PST = [
+            -50, -40, -30, -30, -30, -30, -40, -50,
+            -40, -20, 0, 0, 0, 0, -20, -40,
+            -30, 0, 10, 15, 15, 10, 0, -30,
+            -30, 5, 15, 20, 20, 15, 5, -30,
+            -30, 0, 15, 20, 20, 15, 0, -30,
+            -30, 5, 10, 15, 15, 10, 5, -30,
+            -40, -20, 0, 5, 5, 0, -20, -40,
+            -50, -40, -30, -30, -30, -30, -40, -50,
+        ]
+
+        # Piece values (Centipawns)
         PIECE_VALUES = {
-            chess.PAWN: 1,
-            chess.KNIGHT: 3,
-            chess.BISHOP: 3,
-            chess.ROOK: 5,
-            chess.QUEEN: 9,
-            chess.KING: 0  # king’s value is infinite in reality, but we ignore it here
+            chess.PAWN: 100,
+            chess.KNIGHT: 320,
+            chess.BISHOP: 330,
+            chess.ROOK: 500,
+            chess.QUEEN: 900,
+            chess.KING: 20000
         }
 
-        value = 0
-        for piece_type in PIECE_VALUES:
-            value += PIECE_VALUES[piece_type] * (
-                        len(board.pieces(piece_type, chess.WHITE)) - len(board.pieces(piece_type, chess.BLACK)))
+        # Mapping to PSTs (Simple version: reuse Knight table for Bishop/King center bias)
+        PST_MAP = {
+            chess.PAWN: PAWN_PST,
+            chess.KNIGHT: KNIGHT_PST,
+            # Fallback for others to avoid massive code bloat here
+            chess.BISHOP: KNIGHT_PST,
+            chess.ROOK: [0] * 64,
+            chess.QUEEN: [0] * 64,
+            chess.KING: [0] * 64
+        }
 
-        center_squares = [chess.D4, chess.D5, chess.E4, chess.E5]
-        for sq in center_squares:
-            if board.piece_at(sq):
-                if board.piece_at(sq).color == chess.WHITE:
-                    value += 0.1
+        score = 0
+
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece:
+                # 1. Material Value
+                val = PIECE_VALUES[piece.piece_type]
+
+                # 2. Positional Value (PST)
+                pst_val = 0
+                if piece.piece_type in PST_MAP:
+                    table = PST_MAP[piece.piece_type]
+                    # If White, index is normal. If Black, mirror index (flip vertically)
+                    idx = square if piece.color == chess.WHITE else chess.square_mirror(square)
+                    pst_val = table[idx]
+
+                if piece.color == chess.WHITE:
+                    score += val + pst_val
                 else:
-                    value -= 0.1
+                    score -= val + pst_val
 
-        max_material = 39  # sum of all pieces except kings
-        return max(-1.0, min(1.0, value / max_material))
+        # Normalize to -1.0 to 1.0 (approximate)
+        # 1 Pawn advantage (100) becomes ~0.1
+        return math.tanh(score / 1000.0)
 
-    def rollout(self, model: DeepForkNet, device: str, history_count: int, max_depth: int = 200) -> float:
+    def rollout(self, state_tensor) -> float:
         """
-
-        Returns:
-            value estimate from root player's perspective (+1, -1, or model eval)
+        Returns the value estimate from the perspective of the player to move
+        at this node.
         """
+        if self.board.is_game_over():
+            result = self.board.result()
+            if result == "1-0":
+                return 1.0 if self.board.turn == chess.WHITE else -1.0
+            if result == "0-1":
+                return -1.0 if self.board.turn == chess.WHITE else 1.0
+            return 0.0  # Draw
 
-        board_copy = self.board.copy()
-        seen_states = dict(self.seen_states)
-        state_history = np.copy(self.state_history)
+        logits = self.value_model(state_tensor).detach().cpu().numpy().reshape(-1)
 
-        player = board_copy.turn  # remember whose POV this value is for
+        probs = np.exp(logits) / np.sum(np.exp(logits))
 
-        for _ in range(max_depth):
+        value = probs[2] - probs[0]
 
-            # Stop if terminal
-            if board_copy.is_game_over():
-                result = board_copy.result()
-                if result == "1-0":
-                    return 1 if player == chess.WHITE else -1
-                if result == "0-1":
-                    return -1 if player == chess.WHITE else 1
-                return 0  # draw
-
-            # Build input tensor
-            state_tensor = state_to_tensor(state_history, board_copy, seen_states, history_count)
-            state_tensor = torch.from_numpy(state_tensor).float().unsqueeze(0).to(device)
-
-            # Get model policy logits
-            logits = model(state_tensor).detach().cpu().numpy().reshape(-1)
-
-            # Convert logits
-            distr = get_move_distribution(logits, board_copy)
-            moves, probs = zip(*distr.items())
-            probs = np.array(probs, dtype=np.float32)
-            probs = probs / probs.sum()
-            best_move = np.random.choice(moves, p=probs)
-
-            # Play the best move
-            board_copy.push(best_move)
-
-            # Update history and repetition
-            update_history(state_history, board_copy, history_count, seen_states)
-
-        value_est = self.evaluate_board_simple(board_copy)
-
-        return value_est if player == chess.WHITE else -value_est
+        return value if self.board.turn == chess.WHITE else -value
 
 
 def MCTS(
         game_state: chess.Board,
         num_sim: int,
-        model: DeepForkNet,
+        policy_model: DeepForkNet,
+        value_model: DeepForkNet,
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
-        c_puct: float = 2, # The bigger, the more it relies on net prediction
+        c_puct: float = 1.5, # The bigger, the more it relies on net prediction
         history_count: int = 1
 ) -> chess.Move:
     """
@@ -254,7 +276,7 @@ def MCTS(
 
     :param game_state: Starting chess position
     :param num_sim: Number of simulations to run from the root
-    :param model: Neural network providing policy and value estimates
+    :param policy_model: Neural network providing policy and value estimates
     :param device: Torch device identifier (e.g., 'cpu' or 'cuda')
     :param seen_states: Map from state hash to repetition count
     :param state_history: Rolling tensor buffer of prior states
@@ -274,7 +296,7 @@ def MCTS(
         state_tensor = state_to_tensor(leaf.state_history, leaf.board, leaf.seen_states, history_count)
         state_tensor = torch.from_numpy(state_tensor).float().to(device)
         # Model prediction
-        prior_logits = model(state_tensor).detach().to(device).numpy().reshape(-1)
+        prior_logits = policy_model(state_tensor).detach().to(device).numpy().reshape(-1)
 
         # Expansion
         if not leaf.is_terminal():
@@ -282,11 +304,11 @@ def MCTS(
             leaf.expand(move_distr)
 
         # Rollout
-        value_est = leaf.rollout(model, device, history_count)
+        value_est = value_model(state_tensor).detach().to(device).numpy().reshape(-1)
 
         # Backpropagation
         leaf.backprop(value_est)
-    visualize_mcts_graph(root)
+    # visualize_mcts_graph(root)
     for move, (child, est) in root.children.items():
         if child is not None and child.visit_count is not None and child.move is not None and child.total_value is not None:
             print(f"Child {child.move} count: {child.visit_count} value: {child.total_value} est: {child.prior_est}")
