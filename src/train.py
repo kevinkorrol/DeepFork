@@ -169,7 +169,7 @@ def train_value_model(model, processed_dir, epochs=5, batch_size=32, lr=1e-3, de
 
                 preds = torch.argmax(value_logits, dim=1)
                 correct = (preds == target_indices).sum().item()
-                train_hits += correct
+                test_hits += correct
                 test_samples += state.size(0)
         avg_test_loss = test_loss / test_batches
         avg_test_accuracy = test_hits / test_samples
