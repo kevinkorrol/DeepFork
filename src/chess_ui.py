@@ -26,7 +26,7 @@ from model import DeepForkNet
 from utils.chess_utils import get_state_hash, state_to_tensor, get_move_distribution
 
 BOARD_SIZE = 600
-NUM_SIM = 600
+NUM_SIM = 200
 
 
 class ChessUI(App):
@@ -76,7 +76,7 @@ class ChessUI(App):
             # 3. Execute the move via the main UI app
             self.ui_app.execute_move(promoted_move)
 
-    def __init__(self, player_color: str, policy_model: DeepForkNet, value_model: DeepForkNet, history_count: int, **kwargs):
+    def __init__(self, player_color: str, policy_model: DeepForkNet, value_model: DeepForkNet | None, history_count: int, **kwargs):
         super().__init__(**kwargs)
         self.board = chess.Board()
         self.cb = None
@@ -203,7 +203,5 @@ if __name__ == "__main__":
     policy_model = DeepForkNet(depth=5, filter_count=256, history_size=1, head="policy")
     policy_model.load_state_dict(torch.load("/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/policy__all_samples__5_depth__256_filters__1_history_size.pt", map_location='cpu'))
     value_model = DeepForkNet(depth=5, filter_count=256, history_size=1, head="value")
-    value_model.load_state_dict(torch.load(
-        "/home/tonis/Documents/25sügis/sjandmeteadusesse/DeepFork/models/checkpoints/value__all_samples__5_depth__256_filters__1_history_size.pt",
-        map_location='cpu'))
-    ChessUI('w', policy_model, value_model, history_count=1).run()
+
+    ChessUI('w', policy_model, None, history_count=1).run()

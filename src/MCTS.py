@@ -159,7 +159,7 @@ class MCTSNode:
                 best_move = move
         return best_move
 
-    def evaluate_board_simple(self, board: chess.Board) -> float:
+    def evaluate_board_simple(self) -> float:
         """
         Evaluates the board score (White Advantage - Black Advantage).
         Uses simplified Piece-Square Tables for positional awareness.
@@ -216,7 +216,7 @@ class MCTSNode:
         score = 0
 
         for square in chess.SQUARES:
-            piece = board.piece_at(square)
+            piece = self.board.piece_at(square)
             if piece:
                 # 1. Material Value
                 val = PIECE_VALUES[piece.piece_type]
@@ -238,33 +238,12 @@ class MCTSNode:
         # 1 Pawn advantage (100) becomes ~0.1
         return math.tanh(score / 1000.0)
 
-    def rollout(self, state_tensor) -> float:
-        """
-        Returns the value estimate from the perspective of the player to move
-        at this node.
-        """
-        if self.board.is_game_over():
-            result = self.board.result()
-            if result == "1-0":
-                return 1.0 if self.board.turn == chess.WHITE else -1.0
-            if result == "0-1":
-                return -1.0 if self.board.turn == chess.WHITE else 1.0
-            return 0.0  # Draw
-
-        logits = self.value_model(state_tensor).detach().cpu().numpy().reshape(-1)
-
-        probs = np.exp(logits) / np.sum(np.exp(logits))
-
-        value = probs[2] - probs[0]
-
-        return value if self.board.turn == chess.WHITE else -value
-
 
 def MCTS(
         game_state: chess.Board,
         num_sim: int,
         policy_model: DeepForkNet,
-        value_model: DeepForkNet,
+        value_model: DeepForkNet | None,
         device: str,
         seen_states: dict,
         state_history: np.ndarray,
@@ -293,20 +272,34 @@ def MCTS(
             best_move = leaf.get_best_move(c_puct)
             leaf = leaf.add_or_get_child(best_move, history_count)
 
-        state_tensor = state_to_tensor(leaf.state_history, leaf.board, leaf.seen_states, history_count)
-        state_tensor = torch.from_numpy(state_tensor).float().to(device)
-        # Model prediction
-        prior_logits = policy_model(state_tensor).detach().to(device).numpy().reshape(-1)
-
         # Expansion
-        if not leaf.is_terminal():
+        if leaf.is_terminal():
+            outcome = leaf.board.outcome()
+            if outcome.winner is None:
+                value_est = 0.0  # Draw
+            else:
+                # If current player won, value is +1. If lost, -1.
+                if outcome.winner == leaf.board.turn:
+                    value_est = 1.0
+                else:
+                    value_est = -1.0
+        else:
+            state_tensor = state_to_tensor(leaf.state_history, leaf.board, leaf.seen_states, history_count)
+            state_tensor = torch.from_numpy(state_tensor).float().to(device)
+            prior_logits = policy_model(state_tensor).detach().to(device).numpy().reshape(-1)
+
+            # Expand the node
             move_distr = get_move_distribution(prior_logits, leaf.board)
             leaf.expand(move_distr)
 
-        # Rollout
-        value_est = value_model(state_tensor).detach().to(device).numpy().reshape(-1)
+            # Get the raw score
+            raw_score = leaf.evaluate_board_simple()
 
-        # Backpropagation
+            if leaf.board.turn == chess.BLACK:
+                value_est = -raw_score
+            else:
+                value_est = raw_score
+
         leaf.backprop(value_est)
     # visualize_mcts_graph(root)
     for move, (child, est) in root.children.items():
