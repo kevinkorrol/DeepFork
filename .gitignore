@@ -6,3 +6,6 @@ venv/
 **/__pycache__/**
 **/mcts_tree**
 **/checkpoints/**
+build/**
+extern/**
+**/*.egg-info/
